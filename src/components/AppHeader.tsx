@@ -15,7 +15,7 @@ export function AppHeader() {
   const navigate = useNavigate();
   const { logout, user } = useAuth();
   const fullName = user ? `${user.first_name} ${user.last_name}` : "Sin sesión";
-  const roleLabel = user?.is_super_admin ? "Super Admin" : user?.role_code ?? "Sin rol";
+  const roleLabel = user?.is_super_admin ? "Super Admin" : user?.role_name ?? "Sin rol";
 
   return (
     <header className="h-14 border-b bg-card flex items-center justify-between px-4 shrink-0">

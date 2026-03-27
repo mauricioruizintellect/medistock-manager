@@ -6,6 +6,7 @@ export interface AuthUser {
   is_super_admin: boolean;
   role_id: number;
   role_code: string;
+  role_name: string;
 }
 
 export interface AuthSession {
