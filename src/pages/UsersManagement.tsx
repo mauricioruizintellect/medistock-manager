@@ -3,13 +3,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-
-const users = [
-  { id: "U001", nombre: "Administrador General", correo: "admin@farmacia.com", rol: "admin", estado: "activo", ultimoAcceso: "2026-03-25 08:00" },
-  { id: "U002", nombre: "Ana Vendedor", correo: "cajero@farmacia.com", rol: "vendedor", estado: "activo", ultimoAcceso: "2026-03-25 09:00" },
-];
+import { useAuth } from "@/contexts/AuthContext";
 
 const UsersManagement = () => {
+  const { session, user } = useAuth();
+  const users = user
+    ? [
+        {
+          id: `U${String(user.id).padStart(3, "0")}`,
+          nombre: `${user.first_name} ${user.last_name}`,
+          correo: user.email,
+          rol: user.is_super_admin ? "super_admin" : user.role_code.toLowerCase(),
+          estado: "activo",
+          ultimoAcceso: new Date().toLocaleString("es-EC"),
+        },
+      ]
+    : [];
+
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="page-header">
@@ -48,11 +58,11 @@ const UsersManagement = () => {
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Administradores</span>
-              <span className="font-bold">{users.filter(u => u.rol === "admin").length}</span>
+              <span className="font-bold">{users.filter((u) => u.rol.includes("admin")).length}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Vendedores</span>
-              <span className="font-bold">{users.filter(u => u.rol === "vendedor").length}</span>
+              <span className="text-sm text-muted-foreground">Token activo</span>
+              <span className="font-bold text-xs">{session?.token ? "Sí" : "No"}</span>
             </div>
           </CardContent>
         </Card>
@@ -84,7 +94,9 @@ const UsersManagement = () => {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.correo}</TableCell>
                   <TableCell className="text-center">
-                    <Badge variant={u.rol === "admin" ? "default" : "secondary"} className="text-[10px] capitalize">{u.rol}</Badge>
+                    <Badge variant={u.rol.includes("admin") ? "default" : "secondary"} className="text-[10px] capitalize">
+                      {u.rol.replaceAll("_", " ")}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-center">
                     <Badge variant="outline" className="badge-active text-[10px]">{u.estado}</Badge>

@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Cross, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 const Login = () => {
@@ -13,7 +14,16 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const { isAuthenticated, login } = useAuth();
   const { toast } = useToast();
+  const redirectTo = location.state?.from?.pathname ?? "/dashboard";
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,13 +31,22 @@ const Login = () => {
       toast({ title: "Error", description: "Por favor completa todos los campos", variant: "destructive" });
       return;
     }
+
     setLoading(true);
-    // Simulate login
-    setTimeout(() => {
+
+    try {
+      await login({ email, password });
       setLoading(false);
       toast({ title: "Bienvenido", description: "Inicio de sesión exitoso" });
-      navigate("/dashboard");
-    }, 800);
+      navigate(redirectTo, { replace: true });
+    } catch (error) {
+      setLoading(false);
+      toast({
+        title: "Error de autenticación",
+        description: error instanceof Error ? error.message : "No se pudo iniciar sesión",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -81,12 +100,6 @@ const Login = () => {
                 {loading ? "Iniciando sesión..." : "Iniciar Sesión"}
               </Button>
             </form>
-
-            <div className="mt-6 p-3 rounded-lg bg-muted/50 text-xs text-muted-foreground space-y-1">
-              <p className="font-medium text-foreground text-sm mb-1">Credenciales de prueba:</p>
-              <p>Admin: admin@farmacia.com / admin123</p>
-              <p>Cajero: cajero@farmacia.com / cajero123</p>
-            </div>
           </CardContent>
         </Card>
       </div>

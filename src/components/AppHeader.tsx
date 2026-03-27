@@ -8,11 +8,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function AppHeader() {
   const navigate = useNavigate();
+  const { logout, user } = useAuth();
+  const fullName = user ? `${user.first_name} ${user.last_name}` : "Sin sesión";
+  const roleLabel = user?.is_super_admin ? "Super Admin" : user?.role_code ?? "Sin rol";
 
   return (
     <header className="h-14 border-b bg-card flex items-center justify-between px-4 shrink-0">
@@ -43,8 +46,8 @@ export function AppHeader() {
                 <User className="h-4 w-4 text-primary" />
               </div>
               <div className="hidden sm:block text-left">
-                <p className="text-sm font-medium leading-none">Admin</p>
-                <p className="text-[11px] text-muted-foreground">Administrador</p>
+                <p className="text-sm font-medium leading-none">{fullName}</p>
+                <p className="text-[11px] text-muted-foreground">{roleLabel}</p>
               </div>
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
             </Button>
@@ -55,7 +58,13 @@ export function AppHeader() {
               Mi Perfil
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate("/")} className="text-destructive">
+            <DropdownMenuItem
+              onClick={() => {
+                logout();
+                navigate("/", { replace: true });
+              }}
+              className="text-destructive"
+            >
               <LogOut className="mr-2 h-4 w-4" />
               Cerrar Sesión
             </DropdownMenuItem>
