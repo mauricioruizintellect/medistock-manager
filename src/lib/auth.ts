@@ -3,6 +3,7 @@ export interface AuthUser {
   first_name: string;
   last_name: string;
   email: string;
+  pharmacy_id: number | null;
   is_super_admin: boolean;
   role_id: number;
   role_code: string;

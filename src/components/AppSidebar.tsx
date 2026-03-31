@@ -9,6 +9,7 @@ import {
   Bell,
   UserCog,
   Cross,
+  Building2,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -42,6 +43,7 @@ const systemItems = [
   { title: "Reportes", url: "/reportes", icon: BarChart3 },
   { title: "Alertas", url: "/alertas", icon: Bell },
   { title: "Usuarios", url: "/usuarios", icon: UserCog },
+  { title: "Farmacia", url: "/farmacia", icon: Building2 },
 ];
 
 export function AppSidebar() {
