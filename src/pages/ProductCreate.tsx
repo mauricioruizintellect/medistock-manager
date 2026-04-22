@@ -37,6 +37,10 @@ import {
 } from "@/services/branch-products.service";
 import { getProductCategories } from "@/services/product-categories.service";
 import {
+  createInitialInventoryLot,
+  type InitialInventoryLotPayload,
+} from "@/services/inventory-lots.service";
+import {
   createProduct,
   getProductById,
   updateProduct,
@@ -70,11 +74,20 @@ interface BranchProductFormState {
   min_stock: string;
   max_stock: string;
   reorder_point: string;
-  current_stock: string;
-  reserved_stock: string;
   shelf_location: string;
   is_sellable: boolean;
   is_visible_in_pos: boolean;
+  status: BranchStatus;
+}
+
+interface InitialInventoryLotFormState {
+  lot_number: string;
+  expiration_date: string;
+  purchase_price: string;
+  initial_quantity: string;
+  received_at: string;
+  supplier_name: string;
+  invoice_reference: string;
   status: BranchStatus;
 }
 
@@ -105,13 +118,30 @@ const emptyBranchProductForm: BranchProductFormState = {
   min_stock: "0",
   max_stock: "0",
   reorder_point: "0",
-  current_stock: "0",
-  reserved_stock: "0",
   shelf_location: "",
   is_sellable: true,
   is_visible_in_pos: true,
   status: "active",
 };
+
+const formatDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const emptyInitialInventoryLotForm = (): InitialInventoryLotFormState => ({
+  lot_number: "",
+  expiration_date: "",
+  purchase_price: "0",
+  initial_quantity: "1",
+  received_at: formatDateInputValue(new Date()),
+  supplier_name: "",
+  invoice_reference: "",
+  status: "active",
+});
 
 const asBoolean = (value: boolean | number) => value === true || value === 1;
 
@@ -158,8 +188,6 @@ const branchProductToForm = (branchProduct: BranchProduct): BranchProductFormSta
   min_stock: String(branchProduct.min_stock ?? "0"),
   max_stock: String(branchProduct.max_stock ?? "0"),
   reorder_point: String(branchProduct.reorder_point ?? "0"),
-  current_stock: String(branchProduct.current_stock ?? "0"),
-  reserved_stock: String(branchProduct.reserved_stock ?? "0"),
   shelf_location: branchProduct.shelf_location ?? "",
   is_sellable: asBoolean(branchProduct.is_sellable),
   is_visible_in_pos: asBoolean(branchProduct.is_visible_in_pos),
@@ -176,6 +204,24 @@ const parseNonNegativeNumber = (value: string, label: string) => {
   return parsed;
 };
 
+const parsePositiveNumber = (value: string, label: string) => {
+  const parsed = Number(value || 0);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${label} debe ser mayor que 0.`);
+  }
+
+  return parsed;
+};
+
+const isFutureDate = (dateValue: string) => {
+  const expirationDate = new Date(`${dateValue}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return Number.isFinite(expirationDate.getTime()) && expirationDate > today;
+};
+
 const ProductCreate = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -190,6 +236,10 @@ const ProductCreate = () => {
   const [branchProductFormMode, setBranchProductFormMode] = useState<BranchProductFormMode>("create");
   const [selectedBranchProductId, setSelectedBranchProductId] = useState<number | null>(null);
   const [isBranchProductDialogOpen, setIsBranchProductDialogOpen] = useState(false);
+  const [initialInventoryLotForm, setInitialInventoryLotForm] = useState<InitialInventoryLotFormState>(
+    emptyInitialInventoryLotForm,
+  );
+  const [pendingInitialLoadBranchProduct, setPendingInitialLoadBranchProduct] = useState<BranchProduct | null>(null);
 
   const categoriesQuery = useQuery({
     queryKey: ["product-categories", { pharmacyId }],
@@ -269,13 +319,15 @@ const ProductCreate = () => {
 
   const createBranchProductMutation = useMutation({
     mutationFn: (payload: CreateBranchProductPayload) => createBranchProduct(payload),
-    onSuccess: async () => {
+    onSuccess: async (branchProduct) => {
       await queryClient.invalidateQueries({ queryKey: ["branch-products", { productId: parsedProductId }] });
       setBranchProductForm(emptyBranchProductForm);
       setIsBranchProductDialogOpen(false);
+      setInitialInventoryLotForm(emptyInitialInventoryLotForm());
+      setPendingInitialLoadBranchProduct(branchProduct);
       toast({
         title: "Producto asignado",
-        description: "El producto fue asignado a la sucursal correctamente.",
+        description: "Ahora registra el inventario inicial para esta sucursal.",
       });
     },
     onError: (mutationError) => {
@@ -315,12 +367,37 @@ const ProductCreate = () => {
     },
   });
 
+  const createInitialInventoryLotMutation = useMutation({
+    mutationFn: (payload: InitialInventoryLotPayload) => createInitialInventoryLot(payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["branch-products", { productId: parsedProductId }] });
+      setInitialInventoryLotForm(emptyInitialInventoryLotForm());
+      setPendingInitialLoadBranchProduct(null);
+      toast({
+        title: "Inventario inicial cargado",
+        description: "El lote inicial fue registrado correctamente.",
+      });
+    },
+    onError: (mutationError) => {
+      toast({
+        title: "No se pudo cargar inventario",
+        description:
+          mutationError instanceof Error ? mutationError.message : "Ocurrió un error al registrar el lote inicial.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleProductChange = (field: keyof ProductFormState, value: string | boolean) => {
     setProductForm((current) => ({ ...current, [field]: value }));
   };
 
   const handleBranchProductChange = (field: keyof BranchProductFormState, value: string | boolean) => {
     setBranchProductForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleInitialInventoryLotChange = (field: keyof InitialInventoryLotFormState, value: string) => {
+    setInitialInventoryLotForm((current) => ({ ...current, [field]: value }));
   };
 
   const buildProductPayload = () => {
@@ -365,8 +442,6 @@ const ProductCreate = () => {
       min_stock: parseNonNegativeNumber(branchProductForm.min_stock, "Stock mínimo"),
       max_stock: parseNonNegativeNumber(branchProductForm.max_stock, "Stock máximo"),
       reorder_point: parseNonNegativeNumber(branchProductForm.reorder_point, "Punto de reorden"),
-      current_stock: parseNonNegativeNumber(branchProductForm.current_stock, "Stock actual"),
-      reserved_stock: parseNonNegativeNumber(branchProductForm.reserved_stock, "Stock reservado"),
       ...(branchProductForm.shelf_location.trim() ? { shelf_location: branchProductForm.shelf_location.trim() } : {}),
       is_sellable: branchProductForm.is_sellable,
       is_visible_in_pos: branchProductForm.is_visible_in_pos,
@@ -385,6 +460,42 @@ const ProductCreate = () => {
     is_visible_in_pos: branchProductForm.is_visible_in_pos,
     status: branchProductForm.status,
   });
+
+  const buildInitialInventoryLotPayload = (): InitialInventoryLotPayload => {
+    if (!pendingInitialLoadBranchProduct) {
+      throw new Error("No hay una asignación seleccionada para cargar inventario.");
+    }
+
+    const lotNumber = initialInventoryLotForm.lot_number.trim();
+
+    if (!lotNumber) {
+      throw new Error("Ingresa el número de lote.");
+    }
+
+    if (!isFutureDate(initialInventoryLotForm.expiration_date)) {
+      throw new Error("La fecha de vencimiento debe ser futura.");
+    }
+
+    const purchasePrice = parseNonNegativeNumber(initialInventoryLotForm.purchase_price, "Precio de compra");
+    const initialQuantity = parsePositiveNumber(initialInventoryLotForm.initial_quantity, "Cantidad inicial");
+
+    return {
+      branch_product_id: pendingInitialLoadBranchProduct.id,
+      lot_number: lotNumber,
+      expiration_date: initialInventoryLotForm.expiration_date,
+      purchase_price: purchasePrice,
+      initial_quantity: initialQuantity,
+      current_quantity: initialQuantity,
+      received_at: initialInventoryLotForm.received_at || formatDateInputValue(new Date()),
+      ...(initialInventoryLotForm.supplier_name.trim()
+        ? { supplier_name: initialInventoryLotForm.supplier_name.trim() }
+        : {}),
+      ...(initialInventoryLotForm.invoice_reference.trim()
+        ? { invoice_reference: initialInventoryLotForm.invoice_reference.trim() }
+        : {}),
+      status: initialInventoryLotForm.status,
+    };
+  };
 
   const openCreateBranchProductDialog = () => {
     setBranchProductForm(emptyBranchProductForm);
@@ -459,8 +570,23 @@ const ProductCreate = () => {
     }
   };
 
+  const handleInitialInventoryLotSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    try {
+      createInitialInventoryLotMutation.mutate(buildInitialInventoryLotPayload());
+    } catch (validationError) {
+      toast({
+        title: "Valor inválido",
+        description: validationError instanceof Error ? validationError.message : "Revisa los datos del lote inicial.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const isSavingProduct = createProductMutation.isPending || updateProductMutation.isPending;
   const isSavingBranchProduct = createBranchProductMutation.isPending || updateBranchProductMutation.isPending;
+  const isSavingInitialInventoryLot = createInitialInventoryLotMutation.isPending;
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -895,34 +1021,6 @@ const ProductCreate = () => {
                     disabled={isSavingBranchProduct}
                   />
                 </div>
-                {branchProductFormMode === "create" && (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="branch-product-current-stock">Stock actual</Label>
-                      <Input
-                        id="branch-product-current-stock"
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={branchProductForm.current_stock}
-                        onChange={(event) => handleBranchProductChange("current_stock", event.target.value)}
-                        disabled={isSavingBranchProduct}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="branch-product-reserved-stock">Stock reservado</Label>
-                      <Input
-                        id="branch-product-reserved-stock"
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={branchProductForm.reserved_stock}
-                        onChange={(event) => handleBranchProductChange("reserved_stock", event.target.value)}
-                        disabled={isSavingBranchProduct}
-                      />
-                    </div>
-                  </>
-                )}
                 <div className="space-y-2">
                   <Label htmlFor="branch-product-shelf">Ubicación en percha</Label>
                   <Input
@@ -1003,6 +1101,159 @@ const ProductCreate = () => {
           </DialogContent>
         </Dialog>
       )}
+
+      <Dialog
+        open={pendingInitialLoadBranchProduct !== null}
+        onOpenChange={(open) => {
+          if (!open && !isSavingInitialInventoryLot) {
+            setPendingInitialLoadBranchProduct(null);
+            setInitialInventoryLotForm(emptyInitialInventoryLotForm());
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Carga inicial de inventario</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleInitialInventoryLotSubmit} className="space-y-4">
+            <div className="rounded-md border p-3 text-sm">
+              <p className="font-medium">
+                {pendingInitialLoadBranchProduct?.branch_name ||
+                  (pendingInitialLoadBranchProduct
+                    ? `Sucursal ${pendingInitialLoadBranchProduct.branch_id}`
+                    : "Sucursal seleccionada")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {productForm.name || pendingInitialLoadBranchProduct?.product_name || "Producto asignado"}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="initial-lot-number">Número de lote</Label>
+                <Input
+                  id="initial-lot-number"
+                  value={initialInventoryLotForm.lot_number}
+                  onChange={(event) => handleInitialInventoryLotChange("lot_number", event.target.value)}
+                  placeholder="LOT-2026-001"
+                  disabled={isSavingInitialInventoryLot}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="initial-expiration-date">Fecha de vencimiento</Label>
+                <Input
+                  id="initial-expiration-date"
+                  type="date"
+                  value={initialInventoryLotForm.expiration_date}
+                  onChange={(event) => handleInitialInventoryLotChange("expiration_date", event.target.value)}
+                  disabled={isSavingInitialInventoryLot}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="initial-purchase-price">Precio de compra</Label>
+                <Input
+                  id="initial-purchase-price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={initialInventoryLotForm.purchase_price}
+                  onChange={(event) => handleInitialInventoryLotChange("purchase_price", event.target.value)}
+                  disabled={isSavingInitialInventoryLot}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="initial-quantity">Cantidad inicial</Label>
+                <Input
+                  id="initial-quantity"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={initialInventoryLotForm.initial_quantity}
+                  onChange={(event) => handleInitialInventoryLotChange("initial_quantity", event.target.value)}
+                  disabled={isSavingInitialInventoryLot}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="initial-received-at">Fecha de recepción</Label>
+                <Input
+                  id="initial-received-at"
+                  type="date"
+                  value={initialInventoryLotForm.received_at}
+                  onChange={(event) => handleInitialInventoryLotChange("received_at", event.target.value)}
+                  disabled={isSavingInitialInventoryLot}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Estado</Label>
+                <Select
+                  value={initialInventoryLotForm.status}
+                  onValueChange={(value) => handleInitialInventoryLotChange("status", value)}
+                  disabled={isSavingInitialInventoryLot}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Activo</SelectItem>
+                    <SelectItem value="inactive">Inactivo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="initial-supplier-name">Proveedor</Label>
+                <Input
+                  id="initial-supplier-name"
+                  value={initialInventoryLotForm.supplier_name}
+                  onChange={(event) => handleInitialInventoryLotChange("supplier_name", event.target.value)}
+                  placeholder="Distribuidora Salud"
+                  disabled={isSavingInitialInventoryLot}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="initial-invoice-reference">Factura</Label>
+                <Input
+                  id="initial-invoice-reference"
+                  value={initialInventoryLotForm.invoice_reference}
+                  onChange={(event) => handleInitialInventoryLotChange("invoice_reference", event.target.value)}
+                  placeholder="FAC-001-001-000123"
+                  disabled={isSavingInitialInventoryLot}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPendingInitialLoadBranchProduct(null);
+                  setInitialInventoryLotForm(emptyInitialInventoryLotForm());
+                }}
+                disabled={isSavingInitialInventoryLot}
+              >
+                Omitir
+              </Button>
+              <Button type="submit" className="gap-2" disabled={isSavingInitialInventoryLot}>
+                {isSavingInitialInventoryLot ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Guardando...
+                  </>
+                ) : (
+                  <>
+                    <Package className="h-4 w-4" />
+                    Cargar inventario
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
