@@ -52,6 +52,25 @@ export interface CreateProductPayload {
   status?: BranchStatus;
 }
 
+export interface UpdateProductPayload {
+  pharmacy_id?: number;
+  category_id?: number;
+  sku?: string;
+  barcode?: string;
+  name?: string;
+  generic_name?: string;
+  description?: string;
+  brand?: string;
+  pharmaceutical_form?: string;
+  presentation?: string;
+  concentration?: string;
+  unit_of_measure?: string;
+  requires_prescription?: boolean;
+  is_controlled_substance?: boolean;
+  tax_rate?: number;
+  status?: BranchStatus;
+}
+
 export interface GetProductsParams {
   pharmacy_id?: number;
 }
@@ -118,11 +137,29 @@ export async function getProducts(params: GetProductsParams = {}): Promise<Produ
   }
 }
 
+export async function getProductById(productId: number): Promise<ProductMaster> {
+  try {
+    const { data } = await apiClient.get<ProductMaster | ProductEnvelope>(`/products/${productId}`);
+    return unwrapProduct(data);
+  } catch (error) {
+    throw new Error(getApiErrorMessage(error, "No se pudo obtener el producto."));
+  }
+}
+
 export async function createProduct(payload: CreateProductPayload): Promise<ProductMaster> {
   try {
     const { data } = await apiClient.post<ProductMaster | ProductEnvelope>("/products", payload);
     return unwrapProduct(data);
   } catch (error) {
     throw new Error(getApiErrorMessage(error, "No se pudo crear el producto."));
+  }
+}
+
+export async function updateProduct(productId: number, payload: UpdateProductPayload): Promise<ProductMaster> {
+  try {
+    const { data } = await apiClient.put<ProductMaster | ProductEnvelope>(`/products/${productId}`, payload);
+    return unwrapProduct(data);
+  } catch (error) {
+    throw new Error(getApiErrorMessage(error, "No se pudo actualizar el producto."));
   }
 }
