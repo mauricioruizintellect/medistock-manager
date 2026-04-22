@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, GitBranch, Loader2, Package } from "lucide-react";
+import { ArrowLeft, Edit2, GitBranch, Loader2, Package, Plus } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,11 +22,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { getBranches, type Branch, type BranchStatus } from "@/services/branches.service";
-import { createBranchProduct, type CreateBranchProductPayload } from "@/services/branch-products.service";
+import {
+  createBranchProduct,
+  getBranchProducts,
+  updateBranchProduct,
+  type BranchProduct,
+  type CreateBranchProductPayload,
+  type UpdateBranchProductPayload,
+} from "@/services/branch-products.service";
 import { getProductCategories } from "@/services/product-categories.service";
 import {
   createProduct,
@@ -62,6 +78,8 @@ interface BranchProductFormState {
   status: BranchStatus;
 }
 
+type BranchProductFormMode = "create" | "edit";
+
 const emptyProductForm: ProductFormState = {
   category_id: "none",
   sku: "",
@@ -97,6 +115,24 @@ const emptyBranchProductForm: BranchProductFormState = {
 
 const asBoolean = (value: boolean | number) => value === true || value === 1;
 
+const formatCurrency = (value: BranchProduct["sale_price"]) => {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) {
+    return String(value);
+  }
+
+  return new Intl.NumberFormat("es-EC", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+};
+
+const formatStock = (value: BranchProduct["current_stock"]) => {
+  const stock = Number(value ?? 0);
+  return Number.isFinite(stock) ? stock.toFixed(2) : String(value);
+};
+
 const productToForm = (product: ProductMaster): ProductFormState => ({
   category_id: product.category_id ? String(product.category_id) : "none",
   sku: product.sku,
@@ -113,6 +149,21 @@ const productToForm = (product: ProductMaster): ProductFormState => ({
   is_controlled_substance: asBoolean(product.is_controlled_substance),
   tax_rate: String(product.tax_rate ?? "0"),
   status: product.status,
+});
+
+const branchProductToForm = (branchProduct: BranchProduct): BranchProductFormState => ({
+  branch_id: String(branchProduct.branch_id),
+  sale_price: String(branchProduct.sale_price ?? "0"),
+  cost_price_default: String(branchProduct.cost_price_default ?? "0"),
+  min_stock: String(branchProduct.min_stock ?? "0"),
+  max_stock: String(branchProduct.max_stock ?? "0"),
+  reorder_point: String(branchProduct.reorder_point ?? "0"),
+  current_stock: String(branchProduct.current_stock ?? "0"),
+  reserved_stock: String(branchProduct.reserved_stock ?? "0"),
+  shelf_location: branchProduct.shelf_location ?? "",
+  is_sellable: asBoolean(branchProduct.is_sellable),
+  is_visible_in_pos: asBoolean(branchProduct.is_visible_in_pos),
+  status: branchProduct.status,
 });
 
 const parseNonNegativeNumber = (value: string, label: string) => {
@@ -136,6 +187,9 @@ const ProductCreate = () => {
   const isEditMode = Number.isInteger(parsedProductId) && Number(parsedProductId) > 0;
   const [productForm, setProductForm] = useState<ProductFormState>(emptyProductForm);
   const [branchProductForm, setBranchProductForm] = useState<BranchProductFormState>(emptyBranchProductForm);
+  const [branchProductFormMode, setBranchProductFormMode] = useState<BranchProductFormMode>("create");
+  const [selectedBranchProductId, setSelectedBranchProductId] = useState<number | null>(null);
+  const [isBranchProductDialogOpen, setIsBranchProductDialogOpen] = useState(false);
 
   const categoriesQuery = useQuery({
     queryKey: ["product-categories", { pharmacyId }],
@@ -157,6 +211,12 @@ const ProductCreate = () => {
         status: "active",
       }),
     enabled: pharmacyId !== null,
+  });
+
+  const branchProductsQuery = useQuery({
+    queryKey: ["branch-products", { productId: parsedProductId }],
+    queryFn: () => getBranchProducts({ product_id: parsedProductId as number }),
+    enabled: isEditMode,
   });
 
   useEffect(() => {
@@ -209,8 +269,10 @@ const ProductCreate = () => {
 
   const createBranchProductMutation = useMutation({
     mutationFn: (payload: CreateBranchProductPayload) => createBranchProduct(payload),
-    onSuccess: () => {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["branch-products", { productId: parsedProductId }] });
       setBranchProductForm(emptyBranchProductForm);
+      setIsBranchProductDialogOpen(false);
       toast({
         title: "Producto asignado",
         description: "El producto fue asignado a la sucursal correctamente.",
@@ -220,6 +282,34 @@ const ProductCreate = () => {
       toast({
         title: "No se pudo asignar",
         description: mutationError instanceof Error ? mutationError.message : "Ocurrió un error al asignar el producto.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateBranchProductMutation = useMutation({
+    mutationFn: ({
+      branchProductId,
+      payload,
+    }: {
+      branchProductId: number;
+      payload: UpdateBranchProductPayload;
+    }) => updateBranchProduct(branchProductId, payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["branch-products", { productId: parsedProductId }] });
+      setBranchProductForm(emptyBranchProductForm);
+      setSelectedBranchProductId(null);
+      setBranchProductFormMode("create");
+      setIsBranchProductDialogOpen(false);
+      toast({
+        title: "Asignación actualizada",
+        description: "Los datos de la sucursal fueron guardados correctamente.",
+      });
+    },
+    onError: (mutationError) => {
+      toast({
+        title: "No se pudo actualizar",
+        description: mutationError instanceof Error ? mutationError.message : "Ocurrió un error al actualizar la asignación.",
         variant: "destructive",
       });
     },
@@ -258,6 +348,56 @@ const ProductCreate = () => {
       tax_rate: taxRate,
       status: productForm.status,
     };
+  };
+
+  const buildCreateBranchProductPayload = (): CreateBranchProductPayload => {
+    const branchId = Number(branchProductForm.branch_id);
+
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      throw new Error("Selecciona una sucursal válida para asignar el producto.");
+    }
+
+    return {
+      branch_id: branchId,
+      product_id: parsedProductId as number,
+      sale_price: parseNonNegativeNumber(branchProductForm.sale_price, "Precio de venta"),
+      cost_price_default: parseNonNegativeNumber(branchProductForm.cost_price_default, "Costo por defecto"),
+      min_stock: parseNonNegativeNumber(branchProductForm.min_stock, "Stock mínimo"),
+      max_stock: parseNonNegativeNumber(branchProductForm.max_stock, "Stock máximo"),
+      reorder_point: parseNonNegativeNumber(branchProductForm.reorder_point, "Punto de reorden"),
+      current_stock: parseNonNegativeNumber(branchProductForm.current_stock, "Stock actual"),
+      reserved_stock: parseNonNegativeNumber(branchProductForm.reserved_stock, "Stock reservado"),
+      ...(branchProductForm.shelf_location.trim() ? { shelf_location: branchProductForm.shelf_location.trim() } : {}),
+      is_sellable: branchProductForm.is_sellable,
+      is_visible_in_pos: branchProductForm.is_visible_in_pos,
+      status: branchProductForm.status,
+    };
+  };
+
+  const buildUpdateBranchProductPayload = (): UpdateBranchProductPayload => ({
+    sale_price: parseNonNegativeNumber(branchProductForm.sale_price, "Precio de venta"),
+    cost_price_default: parseNonNegativeNumber(branchProductForm.cost_price_default, "Costo por defecto"),
+    min_stock: parseNonNegativeNumber(branchProductForm.min_stock, "Stock mínimo"),
+    max_stock: parseNonNegativeNumber(branchProductForm.max_stock, "Stock máximo"),
+    reorder_point: parseNonNegativeNumber(branchProductForm.reorder_point, "Punto de reorden"),
+    shelf_location: branchProductForm.shelf_location.trim(),
+    is_sellable: branchProductForm.is_sellable,
+    is_visible_in_pos: branchProductForm.is_visible_in_pos,
+    status: branchProductForm.status,
+  });
+
+  const openCreateBranchProductDialog = () => {
+    setBranchProductForm(emptyBranchProductForm);
+    setSelectedBranchProductId(null);
+    setBranchProductFormMode("create");
+    setIsBranchProductDialogOpen(true);
+  };
+
+  const openEditBranchProductDialog = (branchProduct: BranchProduct) => {
+    setBranchProductForm(branchProductToForm(branchProduct));
+    setSelectedBranchProductId(branchProduct.id);
+    setBranchProductFormMode("edit");
+    setIsBranchProductDialogOpen(true);
   };
 
   const handleProductSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -300,33 +440,16 @@ const ProductCreate = () => {
       return;
     }
 
-    const branchId = Number(branchProductForm.branch_id);
-
-    if (!Number.isInteger(branchId) || branchId <= 0) {
-      toast({
-        title: "Sucursal requerida",
-        description: "Selecciona una sucursal válida para asignar el producto.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     try {
-      createBranchProductMutation.mutate({
-        branch_id: branchId,
-        product_id: parsedProductId as number,
-        sale_price: parseNonNegativeNumber(branchProductForm.sale_price, "Precio de venta"),
-        cost_price_default: parseNonNegativeNumber(branchProductForm.cost_price_default, "Costo por defecto"),
-        min_stock: parseNonNegativeNumber(branchProductForm.min_stock, "Stock mínimo"),
-        max_stock: parseNonNegativeNumber(branchProductForm.max_stock, "Stock máximo"),
-        reorder_point: parseNonNegativeNumber(branchProductForm.reorder_point, "Punto de reorden"),
-        current_stock: parseNonNegativeNumber(branchProductForm.current_stock, "Stock actual"),
-        reserved_stock: parseNonNegativeNumber(branchProductForm.reserved_stock, "Stock reservado"),
-        ...(branchProductForm.shelf_location.trim() ? { shelf_location: branchProductForm.shelf_location.trim() } : {}),
-        is_sellable: branchProductForm.is_sellable,
-        is_visible_in_pos: branchProductForm.is_visible_in_pos,
-        status: branchProductForm.status,
-      });
+      if (branchProductFormMode === "edit" && selectedBranchProductId !== null) {
+        updateBranchProductMutation.mutate({
+          branchProductId: selectedBranchProductId,
+          payload: buildUpdateBranchProductPayload(),
+        });
+        return;
+      }
+
+      createBranchProductMutation.mutate(buildCreateBranchProductPayload());
     } catch (validationError) {
       toast({
         title: "Valor inválido",
@@ -337,6 +460,7 @@ const ProductCreate = () => {
   };
 
   const isSavingProduct = createProductMutation.isPending || updateProductMutation.isPending;
+  const isSavingBranchProduct = createBranchProductMutation.isPending || updateBranchProductMutation.isPending;
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -566,88 +690,213 @@ const ProductCreate = () => {
           {isEditMode && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <GitBranch className="h-4 w-4 text-primary" />
-                  Asignar a sucursal
-                </CardTitle>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <GitBranch className="h-4 w-4 text-primary" />
+                    Sucursales asignadas
+                  </CardTitle>
+                  <Button
+                    type="button"
+                    className="gap-2 sm:self-start"
+                    onClick={openCreateBranchProductDialog}
+                    disabled={branchesQuery.isLoading || (branchesQuery.data?.items.length ?? 0) === 0}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Nueva asignación
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {branchProductsQuery.data?.total ?? 0} asignaciones registradas para este producto.
+                </p>
               </CardHeader>
-              <CardContent>
-                <form onSubmit={handleBranchProductSubmit} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2 md:col-span-2">
-                      <Label>Sucursal</Label>
-                      <Select
-                        value={branchProductForm.branch_id}
-                        onValueChange={(value) => handleBranchProductChange("branch_id", value)}
-                        disabled={branchesQuery.isLoading}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecciona una sucursal" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(branchesQuery.data?.items ?? []).map((branch: Branch) => (
-                            <SelectItem key={branch.id} value={String(branch.id)}>
-                              {branch.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="branch-product-sale-price">Precio de venta</Label>
-                      <Input
-                        id="branch-product-sale-price"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={branchProductForm.sale_price}
-                        onChange={(event) => handleBranchProductChange("sale_price", event.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="branch-product-cost-price">Costo por defecto</Label>
-                      <Input
-                        id="branch-product-cost-price"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={branchProductForm.cost_price_default}
-                        onChange={(event) => handleBranchProductChange("cost_price_default", event.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="branch-product-min-stock">Stock mínimo</Label>
-                      <Input
-                        id="branch-product-min-stock"
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={branchProductForm.min_stock}
-                        onChange={(event) => handleBranchProductChange("min_stock", event.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="branch-product-max-stock">Stock máximo</Label>
-                      <Input
-                        id="branch-product-max-stock"
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={branchProductForm.max_stock}
-                        onChange={(event) => handleBranchProductChange("max_stock", event.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="branch-product-reorder-point">Punto de reorden</Label>
-                      <Input
-                        id="branch-product-reorder-point"
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={branchProductForm.reorder_point}
-                        onChange={(event) => handleBranchProductChange("reorder_point", event.target.value)}
-                      />
-                    </div>
+              <CardContent className="p-0">
+                {branchProductsQuery.isLoading ? (
+                  <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Cargando asignaciones...
+                  </div>
+                ) : branchProductsQuery.isError ? (
+                  <div className="p-6 text-sm text-destructive">
+                    {branchProductsQuery.error instanceof Error
+                      ? branchProductsQuery.error.message
+                      : "Ocurrió un error al consultar las asignaciones."}
+                  </div>
+                ) : (branchProductsQuery.data?.items.length ?? 0) === 0 ? (
+                  <div className="p-6 text-sm text-muted-foreground">Este producto todavía no está asignado a sucursales.</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Sucursal</TableHead>
+                        <TableHead className="text-right">Precio</TableHead>
+                        <TableHead className="text-right">Stock</TableHead>
+                        <TableHead className="hidden md:table-cell">Percha</TableHead>
+                        <TableHead className="text-center">POS</TableHead>
+                        <TableHead className="text-center">Estado</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(branchProductsQuery.data?.items ?? []).map((branchProduct) => (
+                        <TableRow key={branchProduct.id}>
+                          <TableCell>
+                            <p className="font-medium text-sm">
+                              {branchProduct.branch_name || `Sucursal ${branchProduct.branch_id}`}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{branchProduct.sku || productForm.sku}</p>
+                          </TableCell>
+                          <TableCell className="text-right text-sm">{formatCurrency(branchProduct.sale_price)}</TableCell>
+                          <TableCell className="text-right text-sm">{formatStock(branchProduct.current_stock)}</TableCell>
+                          <TableCell className="hidden md:table-cell text-sm">
+                            {branchProduct.shelf_location || "Sin ubicación"}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex flex-wrap justify-center gap-1">
+                              {asBoolean(branchProduct.is_sellable) && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Vendible
+                                </Badge>
+                              )}
+                              {asBoolean(branchProduct.is_visible_in_pos) && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Visible
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge
+                              variant={branchProduct.status === "active" ? "outline" : "secondary"}
+                              className={branchProduct.status === "active" ? "badge-active text-[10px]" : "text-[10px]"}
+                            >
+                              {branchProduct.status === "active" ? "Activo" : "Inactivo"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 gap-2"
+                              onClick={() => openEditBranchProductDialog(branchProduct)}
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                              Editar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {isEditMode && (
+        <Dialog
+          open={isBranchProductDialogOpen}
+          onOpenChange={(open) => {
+            setIsBranchProductDialogOpen(open);
+
+            if (!open) {
+              setBranchProductForm(emptyBranchProductForm);
+              setBranchProductFormMode("create");
+              setSelectedBranchProductId(null);
+            }
+          }}
+        >
+          <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {branchProductFormMode === "create" ? "Nueva asignación a sucursal" : "Editar asignación a sucursal"}
+              </DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleBranchProductSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Sucursal</Label>
+                  <Select
+                    value={branchProductForm.branch_id}
+                    onValueChange={(value) => handleBranchProductChange("branch_id", value)}
+                    disabled={branchProductFormMode === "edit" || branchesQuery.isLoading || isSavingBranchProduct}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona una sucursal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(branchesQuery.data?.items ?? []).map((branch: Branch) => (
+                        <SelectItem key={branch.id} value={String(branch.id)}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="branch-product-sale-price">Precio de venta</Label>
+                  <Input
+                    id="branch-product-sale-price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={branchProductForm.sale_price}
+                    onChange={(event) => handleBranchProductChange("sale_price", event.target.value)}
+                    disabled={isSavingBranchProduct}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="branch-product-cost-price">Costo por defecto</Label>
+                  <Input
+                    id="branch-product-cost-price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={branchProductForm.cost_price_default}
+                    onChange={(event) => handleBranchProductChange("cost_price_default", event.target.value)}
+                    disabled={isSavingBranchProduct}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="branch-product-min-stock">Stock mínimo</Label>
+                  <Input
+                    id="branch-product-min-stock"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={branchProductForm.min_stock}
+                    onChange={(event) => handleBranchProductChange("min_stock", event.target.value)}
+                    disabled={isSavingBranchProduct}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="branch-product-max-stock">Stock máximo</Label>
+                  <Input
+                    id="branch-product-max-stock"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={branchProductForm.max_stock}
+                    onChange={(event) => handleBranchProductChange("max_stock", event.target.value)}
+                    disabled={isSavingBranchProduct}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="branch-product-reorder-point">Punto de reorden</Label>
+                  <Input
+                    id="branch-product-reorder-point"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={branchProductForm.reorder_point}
+                    onChange={(event) => handleBranchProductChange("reorder_point", event.target.value)}
+                    disabled={isSavingBranchProduct}
+                  />
+                </div>
+                {branchProductFormMode === "create" && (
+                  <>
                     <div className="space-y-2">
                       <Label htmlFor="branch-product-current-stock">Stock actual</Label>
                       <Input
@@ -657,6 +906,7 @@ const ProductCreate = () => {
                         step="1"
                         value={branchProductForm.current_stock}
                         onChange={(event) => handleBranchProductChange("current_stock", event.target.value)}
+                        disabled={isSavingBranchProduct}
                       />
                     </div>
                     <div className="space-y-2">
@@ -668,77 +918,90 @@ const ProductCreate = () => {
                         step="1"
                         value={branchProductForm.reserved_stock}
                         onChange={(event) => handleBranchProductChange("reserved_stock", event.target.value)}
+                        disabled={isSavingBranchProduct}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="branch-product-shelf">Ubicación en percha</Label>
-                      <Input
-                        id="branch-product-shelf"
-                        value={branchProductForm.shelf_location}
-                        onChange={(event) => handleBranchProductChange("shelf_location", event.target.value)}
-                        placeholder="A1-03"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Estado</Label>
-                      <Select
-                        value={branchProductForm.status}
-                        onValueChange={(value) => handleBranchProductChange("status", value as BranchStatus)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecciona estado" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Activo</SelectItem>
-                          <SelectItem value="inactive">Inactivo</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center justify-between rounded-md border p-3">
-                      <Label htmlFor="branch-product-sellable" className="font-medium">
-                        Vendible
-                      </Label>
-                      <Switch
-                        id="branch-product-sellable"
-                        checked={branchProductForm.is_sellable}
-                        onCheckedChange={(checked) => handleBranchProductChange("is_sellable", checked)}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between rounded-md border p-3">
-                      <Label htmlFor="branch-product-visible-pos" className="font-medium">
-                        Visible en POS
-                      </Label>
-                      <Switch
-                        id="branch-product-visible-pos"
-                        checked={branchProductForm.is_visible_in_pos}
-                        onCheckedChange={(checked) => handleBranchProductChange("is_visible_in_pos", checked)}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button
-                      type="submit"
-                      className="gap-2"
-                      disabled={createBranchProductMutation.isPending || (branchesQuery.data?.items.length ?? 0) === 0}
-                    >
-                      {createBranchProductMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Asignando...
-                        </>
-                      ) : (
-                        <>
-                          <GitBranch className="h-4 w-4" />
-                          Asignar a sucursal
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+                  </>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="branch-product-shelf">Ubicación en percha</Label>
+                  <Input
+                    id="branch-product-shelf"
+                    value={branchProductForm.shelf_location}
+                    onChange={(event) => handleBranchProductChange("shelf_location", event.target.value)}
+                    placeholder="A1-03"
+                    disabled={isSavingBranchProduct}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Estado</Label>
+                  <Select
+                    value={branchProductForm.status}
+                    onValueChange={(value) => handleBranchProductChange("status", value as BranchStatus)}
+                    disabled={isSavingBranchProduct}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Activo</SelectItem>
+                      <SelectItem value="inactive">Inactivo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label htmlFor="branch-product-sellable" className="font-medium">
+                    Vendible
+                  </Label>
+                  <Switch
+                    id="branch-product-sellable"
+                    checked={branchProductForm.is_sellable}
+                    onCheckedChange={(checked) => handleBranchProductChange("is_sellable", checked)}
+                    disabled={isSavingBranchProduct}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label htmlFor="branch-product-visible-pos" className="font-medium">
+                    Visible en POS
+                  </Label>
+                  <Switch
+                    id="branch-product-visible-pos"
+                    checked={branchProductForm.is_visible_in_pos}
+                    onCheckedChange={(checked) => handleBranchProductChange("is_visible_in_pos", checked)}
+                    disabled={isSavingBranchProduct}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsBranchProductDialogOpen(false)}
+                  disabled={isSavingBranchProduct}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  className="gap-2"
+                  disabled={isSavingBranchProduct || (branchesQuery.data?.items.length ?? 0) === 0}
+                >
+                  {isSavingBranchProduct ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <GitBranch className="h-4 w-4" />
+                      {branchProductFormMode === "create" ? "Crear asignación" : "Guardar cambios"}
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
