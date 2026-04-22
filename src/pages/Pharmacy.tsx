@@ -15,9 +15,21 @@ import {
   Search,
   ShieldCheck,
   Store,
+  Trash2,
+  Users,
   UserRound,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +38,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +64,14 @@ import {
   type UpdateBranchPayload,
 } from "@/services/branches.service";
 import { getPharmacyById, updatePharmacyById, type UpdatePharmacyPayload } from "@/services/pharmacy.service";
+import {
+  createUserBranchRole,
+  deleteUserBranchRole,
+  getUserBranchRoles,
+  type CreateUserBranchRolePayload,
+  type UserBranchRole,
+} from "@/services/user-branch-roles.service";
+import { getUserRoles, getUsersByPharmacy, type PharmacyUser, type UserRole } from "@/services/users.service";
 
 const formatValue = (value: unknown) => {
   if (value === null || value === undefined || value === "") {
@@ -119,6 +138,13 @@ interface BranchFormState {
 
 type BranchFormMode = "create" | "edit";
 
+interface UserBranchRoleFormState {
+  user_id: string;
+  role_id: string;
+  is_default: boolean;
+  status: BranchStatus;
+}
+
 const emptyBranchForm: BranchFormState = {
   id: "",
   code: "",
@@ -130,6 +156,15 @@ const emptyBranchForm: BranchFormState = {
   status: "active",
   is_main: false,
 };
+
+const emptyUserBranchRoleForm: UserBranchRoleFormState = {
+  user_id: "",
+  role_id: "",
+  is_default: false,
+  status: "active",
+};
+
+const ASSIGNABLE_BRANCH_ROLE_CODES = ["CASHIER", "BRANCH_ADMIN"];
 
 const buildBranchPayload = (form: BranchFormState) => ({
   ...(form.code.trim() ? { code: form.code.trim() } : {}),
@@ -144,6 +179,8 @@ const buildBranchPayload = (form: BranchFormState) => ({
 
 const isMainBranch = (value: Branch["is_main"]) => value === true || value === 1;
 
+const isDefaultAssignment = (value: UserBranchRole["is_default"]) => value === true || value === 1;
+
 const branchToForm = (branch: Branch): BranchFormState => ({
   id: String(branch.id),
   code: branch.code ?? "",
@@ -155,6 +192,14 @@ const branchToForm = (branch: Branch): BranchFormState => ({
   status: branch.status,
   is_main: isMainBranch(branch.is_main),
 });
+
+const getUserFullName = (pharmacyUser: PharmacyUser) =>
+  `${pharmacyUser.first_name} ${pharmacyUser.last_name}`.trim();
+
+const getAssignmentFullName = (assignment: UserBranchRole) =>
+  `${assignment.first_name} ${assignment.last_name}`.trim();
+
+const getRoleLabel = (role: UserRole) => role.name || role.code;
 
 const Pharmacy = () => {
   const { user } = useAuth();
@@ -168,6 +213,9 @@ const Pharmacy = () => {
   const [branchForm, setBranchForm] = useState<BranchFormState>(emptyBranchForm);
   const [branchStatusFilter, setBranchStatusFilter] = useState<BranchStatus | "all">("all");
   const [branchSearch, setBranchSearch] = useState("");
+  const [selectedBranchForUsers, setSelectedBranchForUsers] = useState<Branch | null>(null);
+  const [userBranchRoleForm, setUserBranchRoleForm] = useState<UserBranchRoleFormState>(emptyUserBranchRoleForm);
+  const [assignmentToDelete, setAssignmentToDelete] = useState<UserBranchRole | null>(null);
   const canListBranches = Boolean(user) && (pharmacyId !== null || user?.is_super_admin);
 
   const { data, isLoading, isError, error } = useQuery({
@@ -186,6 +234,27 @@ const Pharmacy = () => {
       }),
     enabled: canListBranches,
   });
+
+  const branchAssignmentsQuery = useQuery({
+    queryKey: ["user-branch-roles", { branchId: selectedBranchForUsers?.id }],
+    queryFn: () => getUserBranchRoles({ branch_id: selectedBranchForUsers?.id as number }),
+    enabled: selectedBranchForUsers !== null,
+  });
+
+  const branchUsersQuery = useQuery({
+    queryKey: ["users", "pharmacy", selectedBranchForUsers?.pharmacy_id],
+    queryFn: () => getUsersByPharmacy(selectedBranchForUsers?.pharmacy_id as number),
+    enabled: selectedBranchForUsers !== null,
+  });
+
+  const userRolesQuery = useQuery({
+    queryKey: ["users", "roles"],
+    queryFn: getUserRoles,
+    enabled: selectedBranchForUsers !== null,
+  });
+
+  const assignableRoles =
+    userRolesQuery.data?.filter((role) => ASSIGNABLE_BRANCH_ROLE_CODES.includes(role.code)) ?? [];
 
   useEffect(() => {
     if (!data) {
@@ -265,12 +334,54 @@ const Pharmacy = () => {
     },
   });
 
+  const createUserBranchRoleMutation = useMutation({
+    mutationFn: (payload: CreateUserBranchRolePayload) => createUserBranchRole(payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["user-branch-roles"] });
+      setUserBranchRoleForm(emptyUserBranchRoleForm);
+      toast({
+        title: "Usuario asignado",
+        description: "La asignación fue creada correctamente.",
+      });
+    },
+    onError: (mutationError) => {
+      toast({
+        title: "No se pudo asignar",
+        description: mutationError instanceof Error ? mutationError.message : "Ocurrió un error al asignar el usuario.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteUserBranchRoleMutation = useMutation({
+    mutationFn: (assignmentId: number) => deleteUserBranchRole(assignmentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["user-branch-roles"] });
+      setAssignmentToDelete(null);
+      toast({
+        title: "Asignación eliminada",
+        description: "El usuario fue removido de la sucursal.",
+      });
+    },
+    onError: (mutationError) => {
+      toast({
+        title: "No se pudo eliminar",
+        description: mutationError instanceof Error ? mutationError.message : "Ocurrió un error al eliminar la asignación.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleChange = (field: keyof UpdatePharmacyPayload, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
   const handleBranchChange = (field: keyof BranchFormState, value: string | boolean) => {
     setBranchForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleUserBranchRoleChange = (field: keyof UserBranchRoleFormState, value: string | boolean) => {
+    setUserBranchRoleForm((current) => ({ ...current, [field]: value }));
   };
 
   const openCreateBranchForm = () => {
@@ -283,6 +394,11 @@ const Pharmacy = () => {
     setBranchFormMode("edit");
     setBranchForm(branchToForm(branch));
     setIsBranchFormOpen(true);
+  };
+
+  const openBranchUsersModal = (branch: Branch) => {
+    setSelectedBranchForUsers(branch);
+    setUserBranchRoleForm(emptyUserBranchRoleForm);
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -332,7 +448,36 @@ const Pharmacy = () => {
     });
   };
 
+  const handleCreateUserBranchRole = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!selectedBranchForUsers) {
+      return;
+    }
+
+    const userId = Number(userBranchRoleForm.user_id);
+    const roleId = Number(userBranchRoleForm.role_id);
+
+    if (!Number.isInteger(userId) || userId <= 0 || !Number.isInteger(roleId) || roleId <= 0) {
+      toast({
+        title: "Datos requeridos",
+        description: "Selecciona un usuario y un rol para crear la asignación.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    createUserBranchRoleMutation.mutate({
+      user_id: userId,
+      branch_id: selectedBranchForUsers.id,
+      role_id: roleId,
+      is_default: userBranchRoleForm.is_default,
+      status: userBranchRoleForm.status,
+    });
+  };
+
   const isBranchSaving = createBranchMutation.isPending || updateBranchMutation.isPending;
+  const isUserBranchRoleSaving = createUserBranchRoleMutation.isPending;
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -342,12 +487,6 @@ const Pharmacy = () => {
           <p className="page-description">Información general de la farmacia asociada al usuario autenticado</p>
         </div>
         <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-          <DialogTrigger asChild>
-            <Button disabled={pharmacyId === null || isLoading || isError} className="gap-2 self-start">
-              <Edit2 className="h-4 w-4" />
-              Editar
-            </Button>
-          </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Editar farmacia</DialogTitle>
@@ -426,6 +565,13 @@ const Pharmacy = () => {
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
+          <div className="flex justify-end">
+            <Button disabled={pharmacyId === null || isLoading || isError} className="gap-2" onClick={() => setIsEditOpen(true)}>
+              <Edit2 className="h-4 w-4" />
+              Editar farmacia
+            </Button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="md:col-span-2">
           <CardHeader className="pb-2">
@@ -734,9 +880,15 @@ const Pharmacy = () => {
                           {formatDate(branch.updated_at)}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditBranch(branch)}>
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="sm" className="h-8 gap-2" onClick={() => openBranchUsersModal(branch)}>
+                              <Users className="h-3.5 w-3.5" />
+                              Gestionar usuarios
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditBranch(branch)}>
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -861,6 +1013,225 @@ const Pharmacy = () => {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={selectedBranchForUsers !== null} onOpenChange={(open) => !open && setSelectedBranchForUsers(null)}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>
+              Usuarios de {selectedBranchForUsers?.name ?? "la sucursal"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4 text-primary" />
+                  Asignaciones
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {branchAssignmentsQuery.isLoading ? (
+                  <div className="p-6 flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Cargando usuarios...
+                  </div>
+                ) : branchAssignmentsQuery.isError ? (
+                  <div className="p-6 text-sm text-destructive">
+                    {branchAssignmentsQuery.error instanceof Error
+                      ? branchAssignmentsQuery.error.message
+                      : "Ocurrió un error al consultar asignaciones."}
+                  </div>
+                ) : branchAssignmentsQuery.data?.items.length === 0 ? (
+                  <div className="p-6 text-sm text-muted-foreground">No hay usuarios asignados a esta sucursal.</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Usuario</TableHead>
+                        <TableHead>Rol</TableHead>
+                        <TableHead className="text-center">Estado</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {branchAssignmentsQuery.data?.items.map((assignment) => (
+                        <TableRow key={assignment.id}>
+                          <TableCell>
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-medium text-sm">{getAssignmentFullName(assignment)}</p>
+                                {isDefaultAssignment(assignment.is_default) && (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    Default
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground break-all">{assignment.user_email}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={assignment.role_code === "BRANCH_ADMIN" ? "default" : "secondary"} className="text-[10px]">
+                              {assignment.role_name}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge
+                              variant={assignment.status === "active" ? "outline" : "secondary"}
+                              className={assignment.status === "active" ? "badge-active text-[10px]" : "text-[10px]"}
+                            >
+                              {assignment.status === "active" ? "Activo" : "Inactivo"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              disabled={deleteUserBranchRoleMutation.isPending}
+                              onClick={() => setAssignmentToDelete(assignment)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Plus className="h-4 w-4 text-primary" />
+                  Asignar usuario
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleCreateUserBranchRole} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Usuario</Label>
+                    <Select
+                      value={userBranchRoleForm.user_id}
+                      onValueChange={(value) => handleUserBranchRoleChange("user_id", value)}
+                      disabled={branchUsersQuery.isLoading}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona usuario" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(branchUsersQuery.data ?? []).map((pharmacyUser) => (
+                          <SelectItem key={pharmacyUser.id} value={String(pharmacyUser.id)}>
+                            {getUserFullName(pharmacyUser)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Rol en sucursal</Label>
+                    <Select
+                      value={userBranchRoleForm.role_id}
+                      onValueChange={(value) => handleUserBranchRoleChange("role_id", value)}
+                      disabled={userRolesQuery.isLoading}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona rol" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {assignableRoles.map((role) => (
+                          <SelectItem key={role.id} value={String(role.id)}>
+                            {getRoleLabel(role)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Estado</Label>
+                    <Select
+                      value={userBranchRoleForm.status}
+                      onValueChange={(value) => handleUserBranchRoleChange("status", value as BranchStatus)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona estado" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Activo</SelectItem>
+                        <SelectItem value="inactive">Inactivo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-md border p-3">
+                    <Label htmlFor="user-branch-is-default" className="font-medium">
+                      Predeterminada
+                    </Label>
+                    <Switch
+                      id="user-branch-is-default"
+                      checked={userBranchRoleForm.is_default}
+                      onCheckedChange={(checked) => handleUserBranchRoleChange("is_default", checked)}
+                    />
+                  </div>
+
+                  <Button type="submit" className="w-full gap-2" disabled={isUserBranchRoleSaving || assignableRoles.length === 0}>
+                    {isUserBranchRoleSaving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Asignando...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4" />
+                        Asignar usuario
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={assignmentToDelete !== null} onOpenChange={(open) => !open && setAssignmentToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar asignación</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción quitará a {assignmentToDelete ? getAssignmentFullName(assignmentToDelete) : "este usuario"} de la
+              sucursal {assignmentToDelete?.branch_name ?? "seleccionada"}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteUserBranchRoleMutation.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteUserBranchRoleMutation.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+
+                if (assignmentToDelete) {
+                  deleteUserBranchRoleMutation.mutate(assignmentToDelete.id);
+                }
+              }}
+            >
+              {deleteUserBranchRoleMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Eliminando...
+                </>
+              ) : (
+                "Eliminar"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
