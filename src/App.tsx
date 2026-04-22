@@ -9,6 +9,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
+import ProductCreate from "./pages/ProductCreate";
 import Inventory from "./pages/Inventory";
 import POS from "./pages/POS";
 import Clients from "./pages/Clients";
@@ -35,6 +36,7 @@ const App = () => (
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/pos" element={<POS />} />
                 <Route path="/productos" element={<Products />} />
+                <Route path="/productos/nuevo" element={<ProductCreate />} />
                 <Route path="/inventario" element={<Inventory />} />
                 <Route path="/compras" element={<Purchases />} />
                 <Route path="/clientes" element={<Clients />} />
