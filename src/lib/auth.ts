@@ -5,9 +5,19 @@ export interface AuthUser {
   email: string;
   pharmacy_id: number | null;
   is_super_admin: boolean;
-  role_id: number;
-  role_code: string;
-  role_name: string;
+  role_id: number | null;
+  role_code: string | null;
+  role_name: string | null;
+  default_branch_id?: number | null;
+  default_branch?: {
+    id: number;
+    name: string;
+    pharmacy_id: number;
+    role_id: number | null;
+    role_code: string | null;
+    role_name: string | null;
+    is_default: boolean;
+  } | null;
 }
 
 export interface AuthSession {

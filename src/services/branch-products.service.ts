@@ -17,6 +17,15 @@ export interface BranchProduct {
   product_name?: string;
   sku?: string;
   barcode?: string | null;
+  generic_name?: string | null;
+  brand?: string | null;
+  pharmaceutical_form?: string | null;
+  presentation?: string | null;
+  concentration?: string | null;
+  unit_of_measure?: string | null;
+  tax_rate?: string | number;
+  requires_prescription?: boolean | number;
+  is_controlled_substance?: boolean | number;
   sale_price: string | number;
   cost_price_default?: string | number;
   min_stock?: string | number;
@@ -79,6 +88,11 @@ export interface GetBranchProductsParams {
   pharmacy_id?: number;
   branch_id?: number;
   product_id?: number;
+  search?: string;
+  status?: BranchStatus;
+  is_visible_in_pos?: boolean;
+  is_sellable?: boolean;
+  has_stock?: boolean;
 }
 
 export interface BranchProductsListResponse {
