@@ -68,6 +68,20 @@ const formatStock = (value: string | number | null | undefined) => {
   return Number.isInteger(stock) ? String(stock) : stock.toFixed(2);
 };
 
+const dedupeBranches = (branches: UserBranchRole[]) => {
+  const uniqueBranches = new Map<number, UserBranchRole>();
+
+  for (const branch of branches) {
+    const existing = uniqueBranches.get(branch.branch_id);
+
+    if (!existing || (!Boolean(existing.is_default) && Boolean(branch.is_default))) {
+      uniqueBranches.set(branch.branch_id, branch);
+    }
+  }
+
+  return Array.from(uniqueBranches.values());
+};
+
 const getDefaultBranch = (branches: UserBranchRole[], defaultBranchId?: number | null) => {
   return (
     branches.find((branch) => branch.branch_id === defaultBranchId) ||
@@ -168,7 +182,7 @@ const POS = () => {
     enabled: Boolean(user?.id),
   });
 
-  const branchOptions = branchRolesQuery.data?.items ?? [];
+  const branchOptions = useMemo(() => dedupeBranches(branchRolesQuery.data?.items ?? []), [branchRolesQuery.data?.items]);
 
   useEffect(() => {
     if (selectedBranchId || branchOptions.length === 0) {
@@ -463,7 +477,7 @@ const POS = () => {
           </Card>
         ) : null}
 
-        {branchRolesQuery.data && branchRolesQuery.data.total === 0 ? (
+        {branchRolesQuery.data && branchOptions.length === 0 ? (
           <Card className="mb-4 border-destructive/40">
             <CardContent className="p-4 text-sm text-muted-foreground">
               El usuario no tiene sucursales activas asignadas para operar en POS.
