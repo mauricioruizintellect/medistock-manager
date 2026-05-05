@@ -17,6 +17,7 @@ export interface SaleItemPayload {
 
 export interface CreateSalePayload {
   branch_id: number;
+  client_id?: number;
   payment_method: PaymentMethod;
   discount_type?: DiscountType;
   discount_value?: number;
@@ -27,6 +28,7 @@ export interface CreateSalePayload {
 
 export interface SaleSummary {
   id: number;
+  client_id?: number | null;
   ticket_number: string;
   subtotal: string | number;
   discount_amount: string | number;
@@ -56,10 +58,16 @@ export interface SaleDetailItem {
 
 export interface SaleDetail extends SaleSummary {
   branch_id: number;
+  client_id?: number | null;
   pharmacy_id?: number | null;
   cashier_user_id?: number | null;
   customer_name?: string | null;
   customer_document?: string | null;
+  client?: {
+    id: number;
+    full_name: string;
+    document_number?: string | null;
+  } | null;
   notes?: string | null;
   items: SaleDetailItem[];
 }

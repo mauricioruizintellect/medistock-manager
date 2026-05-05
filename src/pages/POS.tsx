@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRightLeft,
   Banknote,
+  Check,
   CreditCard,
   Loader2,
   Minus,
@@ -11,11 +12,22 @@ import {
   Search,
   ShoppingCart,
   Trash2,
+  UserRound,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -27,6 +39,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { getBranchProducts, type BranchProduct } from "@/services/branch-products.service";
+import { getClients, type Client } from "@/services/clients.service";
 import { createSale, type PaymentMethod, type SaleSummary } from "@/services/sales.service";
 import { getUserBranchRoles, type UserBranchRole } from "@/services/user-branch-roles.service";
 
@@ -45,6 +58,7 @@ interface ReceiptSnapshot {
   }>;
   branchName: string;
   cashierName: string;
+  clientName: string | null;
 }
 
 const MIN_SEARCH_LENGTH = 2;
@@ -131,6 +145,7 @@ const buildReceiptHtml = (receipt: ReceiptSnapshot) => {
             <p><strong>Ticket:</strong> ${receipt.sale.ticket_number}</p>
             <p><strong>Sucursal:</strong> ${receipt.branchName}</p>
             <p><strong>Cajero:</strong> ${receipt.cashierName}</p>
+            ${receipt.clientName ? `<p><strong>Cliente:</strong> ${receipt.clientName}</p>` : ""}
             <p><strong>Fecha:</strong> ${new Intl.DateTimeFormat("es-EC", {
               dateStyle: "medium",
               timeStyle: "short",
@@ -172,9 +187,14 @@ const POS = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [lastReceipt, setLastReceipt] = useState<ReceiptSnapshot | null>(null);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [isClientSelectorOpen, setIsClientSelectorOpen] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
 
   const deferredSearch = useDeferredValue(search.trim());
+  const deferredClientSearch = useDeferredValue(clientSearch.trim());
   const cashierName = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() || user?.email || "Cajero";
+  const pharmacyId = user?.pharmacy_id ?? null;
 
   const branchRolesQuery = useQuery({
     queryKey: ["user-branch-roles", "pos"],
@@ -229,7 +249,23 @@ const POS = () => {
     mutationFn: createSale,
   });
 
+  const clientsQuery = useQuery({
+    queryKey: ["pos-clients", { pharmacyId, search: deferredClientSearch }],
+    queryFn: () =>
+      getClients({
+        ...(pharmacyId !== null ? { pharmacy_id: pharmacyId } : {}),
+        search: deferredClientSearch || undefined,
+        status: "active",
+        limit: 20,
+      }),
+    enabled: pharmacyId !== null,
+  });
+
   const searchResults = searchResultsQuery.data?.items ?? [];
+  const clientResults = clientsQuery.data?.items ?? [];
+  const hasCompletedSale = lastReceipt !== null;
+  const isBusy = createSaleMutation.isPending;
+  const isDraftLocked = isBusy || hasCompletedSale;
   const discountPercent = Math.min(100, Math.max(0, toNumber(discountPercentInput)));
 
   const subtotal = useMemo(
@@ -314,6 +350,16 @@ const POS = () => {
     setCart((currentCart) => currentCart.filter((item) => item.product.id !== productId));
   };
 
+  const startNewSale = () => {
+    setLastReceipt(null);
+    setCart([]);
+    setDiscountPercentInput("0");
+    setSearch("");
+    setSelectedClient(null);
+    setClientSearch("");
+    setIsClientSelectorOpen(false);
+  };
+
   const completeSale = () => {
     if (!selectedBranch) {
       toast({ title: "Selecciona una sucursal", variant: "destructive" });
@@ -335,6 +381,7 @@ const POS = () => {
     createSaleMutation.mutate(
       {
         branch_id: selectedBranch.branch_id,
+        client_id: selectedClient?.id,
         payment_method: paymentMethod,
         discount_type: discountPercent > 0 ? "percentage" : undefined,
         discount_value: discountPercent > 0 ? discountPercent : 0,
@@ -349,16 +396,21 @@ const POS = () => {
           await queryClient.invalidateQueries({ queryKey: ["pos-branch-products"] });
           await queryClient.invalidateQueries({ queryKey: ["inventory-stock"] });
           await queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+          await queryClient.invalidateQueries({ queryKey: ["clients"] });
+          await queryClient.invalidateQueries({ queryKey: ["pos-clients"] });
 
           setLastReceipt({
             sale,
             items: receiptItems,
             branchName: selectedBranch.branch_name,
             cashierName,
+            clientName: selectedClient?.full_name ?? null,
           });
           setCart([]);
           setDiscountPercentInput("0");
           setSearch("");
+          setClientSearch("");
+          setIsClientSelectorOpen(false);
 
           toast({
             title: "Venta registrada",
@@ -425,7 +477,7 @@ const POS = () => {
           </div>
 
           <div className="w-full md:w-72">
-            <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+            <Select value={selectedBranchId} onValueChange={setSelectedBranchId} disabled={isDraftLocked}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona sucursal" />
               </SelectTrigger>
@@ -454,7 +506,7 @@ const POS = () => {
             onChange={(event) => setSearch(event.target.value)}
             className="pl-9 h-12 text-base"
             autoFocus
-            disabled={!canSearchProducts || createSaleMutation.isPending}
+            disabled={!canSearchProducts || isDraftLocked}
           />
         </div>
 
@@ -484,6 +536,108 @@ const POS = () => {
             </CardContent>
           </Card>
         ) : null}
+
+        <Card className="mb-4">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Cliente</p>
+                <p className="text-xs text-muted-foreground">
+                  Selecciona un cliente registrado o continúa sin cliente.
+                </p>
+              </div>
+
+              {selectedClient ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-muted-foreground"
+                  onClick={() => setSelectedClient(null)}
+                  disabled={isDraftLocked}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Limpiar
+                </Button>
+              ) : null}
+            </div>
+
+            <Popover open={isClientSelectorOpen} onOpenChange={setIsClientSelectorOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start h-auto min-h-11 px-3 py-2"
+                  disabled={isDraftLocked || pharmacyId === null}
+                >
+                  <div className="flex items-center gap-3 text-left">
+                    <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {selectedClient ? selectedClient.full_name : "Consumidor final / sin cliente"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {selectedClient?.document_number || selectedClient?.phone || "No se enviará cliente en la venta"}
+                      </p>
+                    </div>
+                  </div>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[360px] p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Buscar cliente por nombre, documento o teléfono..."
+                    value={clientSearch}
+                    onValueChange={setClientSearch}
+                  />
+                  <CommandList>
+                    {clientsQuery.isLoading ? (
+                      <div className="p-4 flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Buscando clientes...
+                      </div>
+                    ) : null}
+
+                    {clientsQuery.isError ? (
+                      <div className="p-4 text-sm text-destructive">
+                        {clientsQuery.error instanceof Error
+                          ? clientsQuery.error.message
+                          : "No se pudo cargar la lista de clientes."}
+                      </div>
+                    ) : null}
+
+                    {!clientsQuery.isLoading && !clientsQuery.isError ? (
+                      <>
+                        <CommandEmpty>No se encontraron clientes.</CommandEmpty>
+                        <CommandGroup heading="Resultados">
+                          {clientResults.map((client) => (
+                            <CommandItem
+                              key={client.id}
+                              value={`${client.full_name}-${client.id}`}
+                              onSelect={() => {
+                                setSelectedClient(client);
+                                setIsClientSelectorOpen(false);
+                              }}
+                              className="flex items-start gap-3 py-3"
+                            >
+                              <Check
+                                className={`mt-0.5 h-4 w-4 ${selectedClient?.id === client.id ? "opacity-100" : "opacity-0"}`}
+                              />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{client.full_name}</p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {[client.document_number, client.phone, client.email].filter(Boolean).join(" · ") || "Sin datos adicionales"}
+                                </p>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </>
+                    ) : null}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </CardContent>
+        </Card>
 
         {showSearchResults ? (
           <Card className="mb-4">
@@ -564,7 +718,7 @@ const POS = () => {
                         size="icon"
                         className="h-7 w-7"
                         onClick={() => updateQty(item.product.id, -1)}
-                        disabled={createSaleMutation.isPending}
+                        disabled={isDraftLocked}
                       >
                         <Minus className="h-3 w-3" />
                       </Button>
@@ -574,7 +728,7 @@ const POS = () => {
                         size="icon"
                         className="h-7 w-7"
                         onClick={() => updateQty(item.product.id, 1)}
-                        disabled={createSaleMutation.isPending}
+                        disabled={isDraftLocked}
                       >
                         <Plus className="h-3 w-3" />
                       </Button>
@@ -587,7 +741,7 @@ const POS = () => {
                       size="icon"
                       className="h-7 w-7 text-destructive"
                       onClick={() => removeItem(item.product.id)}
-                      disabled={createSaleMutation.isPending}
+                      disabled={isDraftLocked}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -619,7 +773,7 @@ const POS = () => {
                   value={discountPercentInput}
                   onChange={(event) => setDiscountPercentInput(event.target.value)}
                   className="h-8 w-20 text-right ml-auto"
-                  disabled={createSaleMutation.isPending}
+                  disabled={isDraftLocked}
                 />
               </div>
               {discountPercent > 0 ? (
@@ -649,7 +803,7 @@ const POS = () => {
                     size="sm"
                     className="flex-col h-16 gap-1 text-xs"
                     onClick={() => setPaymentMethod(method.key)}
-                    disabled={createSaleMutation.isPending}
+                    disabled={isDraftLocked}
                   >
                     <method.icon className="h-4 w-4" />
                     {method.label}
@@ -657,26 +811,47 @@ const POS = () => {
                 ))}
               </div>
             </div>
+
+            {lastReceipt ? (
+              <Card className="border-primary/30 bg-primary/5">
+                <CardContent className="p-4 space-y-1">
+                  <p className="text-sm font-medium">Venta cobrada</p>
+                  <p className="text-sm text-muted-foreground">
+                    Ticket {lastReceipt.sale.ticket_number} listo para imprimir.
+                  </p>
+                  <div className="flex justify-between text-sm pt-1">
+                    <span className="text-muted-foreground">Total cobrado</span>
+                    <span className="font-semibold">{formatCurrency(lastReceipt.sale.total)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
           </div>
 
           <div className="space-y-2">
+            {hasCompletedSale ? (
+              <Button className="w-full h-12 text-base font-semibold gap-2" onClick={startNewSale}>
+                Nueva venta
+              </Button>
+            ) : (
+              <Button
+                className="w-full h-12 text-base font-semibold gap-2"
+                onClick={completeSale}
+                disabled={isBusy || cart.length === 0 || !selectedBranch}
+              >
+                {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {isBusy ? "Procesando venta..." : `Cobrar ${formatCurrency(total)}`}
+              </Button>
+            )}
             <Button
-              className="w-full h-12 text-base font-semibold gap-2"
-              onClick={completeSale}
-              disabled={createSaleMutation.isPending || cart.length === 0 || !selectedBranch}
-            >
-              {createSaleMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {createSaleMutation.isPending ? "Procesando venta..." : `Cobrar ${formatCurrency(total)}`}
-            </Button>
-            <Button
-              variant="outline"
+              variant={lastReceipt ? "default" : "outline"}
               className="w-full gap-2"
               size="sm"
               onClick={printLastReceipt}
               disabled={!lastReceipt}
             >
               <Printer className="h-4 w-4" />
-              Imprimir Ticket
+              {lastReceipt ? `Imprimir ${lastReceipt.sale.ticket_number}` : "Imprimir Ticket"}
             </Button>
           </div>
         </CardContent>
