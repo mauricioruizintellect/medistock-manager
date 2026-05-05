@@ -26,8 +26,14 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -188,7 +194,7 @@ const POS = () => {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [lastReceipt, setLastReceipt] = useState<ReceiptSnapshot | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [isClientSelectorOpen, setIsClientSelectorOpen] = useState(false);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
 
   const deferredSearch = useDeferredValue(search.trim());
@@ -357,7 +363,7 @@ const POS = () => {
     setSearch("");
     setSelectedClient(null);
     setClientSearch("");
-    setIsClientSelectorOpen(false);
+    setIsClientModalOpen(false);
   };
 
   const completeSale = () => {
@@ -410,7 +416,7 @@ const POS = () => {
           setDiscountPercentInput("0");
           setSearch("");
           setClientSearch("");
-          setIsClientSelectorOpen(false);
+          setIsClientModalOpen(false);
 
           toast({
             title: "Venta registrada",
@@ -498,6 +504,41 @@ const POS = () => {
           {lastReceipt ? <Badge>{lastReceipt.sale.ticket_number}</Badge> : null}
         </div>
 
+        <div className="mb-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setIsClientModalOpen(true)}
+              disabled={isDraftLocked || pharmacyId === null}
+            >
+              <UserRound className="h-4 w-4" />
+              Cliente
+            </Button>
+            {selectedClient ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1 text-muted-foreground"
+                onClick={() => setSelectedClient(null)}
+                disabled={isDraftLocked}
+              >
+                <X className="h-3.5 w-3.5" />
+                Limpiar
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="min-h-10 rounded-lg border bg-muted/20 px-3 py-2">
+            <p className="text-sm font-medium">
+              {selectedClient ? selectedClient.full_name : "Consumidor final / sin cliente"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {selectedClient?.document_number || selectedClient?.phone || "No se enviará cliente en la venta"}
+            </p>
+          </div>
+        </div>
+
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -537,107 +578,97 @@ const POS = () => {
           </Card>
         ) : null}
 
-        <Card className="mb-4">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium">Cliente</p>
-                <p className="text-xs text-muted-foreground">
-                  Selecciona un cliente registrado o continúa sin cliente.
-                </p>
-              </div>
-
-              {selectedClient ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1 text-muted-foreground"
-                  onClick={() => setSelectedClient(null)}
-                  disabled={isDraftLocked}
-                >
-                  <X className="h-3.5 w-3.5" />
-                  Limpiar
-                </Button>
-              ) : null}
-            </div>
-
-            <Popover open={isClientSelectorOpen} onOpenChange={setIsClientSelectorOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start h-auto min-h-11 px-3 py-2"
-                  disabled={isDraftLocked || pharmacyId === null}
-                >
-                  <div className="flex items-center gap-3 text-left">
-                    <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {selectedClient ? selectedClient.full_name : "Consumidor final / sin cliente"}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {selectedClient?.document_number || selectedClient?.phone || "No se enviará cliente en la venta"}
-                      </p>
-                    </div>
+        <Dialog
+          open={isClientModalOpen}
+          onOpenChange={(open) => {
+            setIsClientModalOpen(open);
+            if (!open) {
+              setClientSearch("");
+            }
+          }}
+        >
+          <DialogContent className="max-w-xl p-0">
+            <DialogHeader className="px-6 pt-6 pb-2">
+              <DialogTitle>Seleccionar cliente</DialogTitle>
+              <DialogDescription>
+                Busca por nombre, documento o teléfono para asociar un cliente a la venta.
+              </DialogDescription>
+            </DialogHeader>
+            <Command shouldFilter={false}>
+              <CommandInput
+                placeholder="Buscar cliente por nombre, documento o teléfono..."
+                value={clientSearch}
+                onValueChange={setClientSearch}
+              />
+              <CommandList className="max-h-[420px]">
+                {clientsQuery.isLoading ? (
+                  <div className="p-4 flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Buscando clientes...
                   </div>
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[360px] p-0" align="start">
-                <Command shouldFilter={false}>
-                  <CommandInput
-                    placeholder="Buscar cliente por nombre, documento o teléfono..."
-                    value={clientSearch}
-                    onValueChange={setClientSearch}
-                  />
-                  <CommandList>
-                    {clientsQuery.isLoading ? (
-                      <div className="p-4 flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Buscando clientes...
-                      </div>
-                    ) : null}
+                ) : null}
 
-                    {clientsQuery.isError ? (
-                      <div className="p-4 text-sm text-destructive">
-                        {clientsQuery.error instanceof Error
-                          ? clientsQuery.error.message
-                          : "No se pudo cargar la lista de clientes."}
-                      </div>
-                    ) : null}
+                {clientsQuery.isError ? (
+                  <div className="p-4 text-sm text-destructive">
+                    {clientsQuery.error instanceof Error
+                      ? clientsQuery.error.message
+                      : "No se pudo cargar la lista de clientes."}
+                  </div>
+                ) : null}
 
-                    {!clientsQuery.isLoading && !clientsQuery.isError ? (
-                      <>
-                        <CommandEmpty>No se encontraron clientes.</CommandEmpty>
-                        <CommandGroup heading="Resultados">
-                          {clientResults.map((client) => (
-                            <CommandItem
-                              key={client.id}
-                              value={`${client.full_name}-${client.id}`}
-                              onSelect={() => {
-                                setSelectedClient(client);
-                                setIsClientSelectorOpen(false);
-                              }}
-                              className="flex items-start gap-3 py-3"
-                            >
-                              <Check
-                                className={`mt-0.5 h-4 w-4 ${selectedClient?.id === client.id ? "opacity-100" : "opacity-0"}`}
-                              />
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{client.full_name}</p>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {[client.document_number, client.phone, client.email].filter(Boolean).join(" · ") || "Sin datos adicionales"}
-                                </p>
-                              </div>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </>
-                    ) : null}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </CardContent>
-        </Card>
+                {!clientsQuery.isLoading && !clientsQuery.isError ? (
+                  <>
+                    <div className="border-b px-3 py-2">
+                      <Button
+                        variant="ghost"
+                        className="h-auto w-full justify-start px-2 py-2 text-left"
+                        onClick={() => {
+                          setSelectedClient(null);
+                          setIsClientModalOpen(false);
+                          setClientSearch("");
+                        }}
+                      >
+                        <div className="flex items-start gap-3">
+                          <Check className={`mt-0.5 h-4 w-4 ${selectedClient === null ? "opacity-100" : "opacity-0"}`} />
+                          <div>
+                            <p className="text-sm font-medium">Consumidor final</p>
+                            <p className="text-xs text-muted-foreground">Registrar la venta sin cliente asociado.</p>
+                          </div>
+                        </div>
+                      </Button>
+                    </div>
+                    <CommandEmpty>No se encontraron clientes.</CommandEmpty>
+                    <CommandGroup heading="Resultados">
+                      {clientResults.map((client) => (
+                        <CommandItem
+                          key={client.id}
+                          value={`${client.full_name}-${client.id}`}
+                          onSelect={() => {
+                            setSelectedClient(client);
+                            setIsClientModalOpen(false);
+                            setClientSearch("");
+                          }}
+                          className="flex items-start gap-3 py-3"
+                        >
+                          <Check
+                            className={`mt-0.5 h-4 w-4 ${selectedClient?.id === client.id ? "opacity-100" : "opacity-0"}`}
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{client.full_name}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {[client.document_number, client.phone, client.email].filter(Boolean).join(" · ") ||
+                                "Sin datos adicionales"}
+                            </p>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </>
+                ) : null}
+              </CommandList>
+            </Command>
+          </DialogContent>
+        </Dialog>
 
         {showSearchResults ? (
           <Card className="mb-4">
