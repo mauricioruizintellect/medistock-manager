@@ -24,6 +24,18 @@ const normalizeApiMessage = (value: string | string[] | undefined) => {
 };
 
 export function buildApiError(error: unknown, fallback: string) {
+  if (!error) {
+    return new ApiRequestError(fallback);
+  }
+
+  if (error instanceof ApiRequestError) {
+    return error;
+  }
+
+  if (error instanceof Error && !(error instanceof AxiosError)) {
+    return new ApiRequestError(error.message || fallback);
+  }
+
   const axiosError = error as AxiosError<ApiErrorResponse>;
   const message =
     normalizeApiMessage(axiosError.response?.data?.message) ||
@@ -38,6 +50,10 @@ export function getErrorMessage(
   fallback: string,
   statusMessages: Partial<Record<number, string>> = {},
 ) {
+  if (!error) {
+    return fallback;
+  }
+
   const apiError = error instanceof ApiRequestError ? error : buildApiError(error, fallback);
 
   if (apiError.status && statusMessages[apiError.status]) {
