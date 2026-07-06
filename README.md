@@ -1,3 +1,3 @@
-# Welcome to your Lovable project
+# Farmacia CyR
 
-TODO: Document your project here
+Sistema de gestión para Farmacia CyR.

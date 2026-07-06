@@ -42,7 +42,7 @@ export interface LoginPayload {
   password: string;
 }
 
-const AUTH_STORAGE_KEY = "medistock.auth.session";
+const AUTH_STORAGE_KEY = "farmacia-cyr.auth.session";
 const isBrowser = typeof window !== "undefined";
 
 export function getStoredSession(): AuthSession | null {

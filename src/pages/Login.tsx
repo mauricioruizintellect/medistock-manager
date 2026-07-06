@@ -56,8 +56,8 @@ const Login = () => {
           <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-primary mb-4">
             <Cross className="h-8 w-8 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">FarmaAdmin</h1>
-          <p className="text-sm text-muted-foreground mt-1">Sistema de Gestión de Farmacia</p>
+          <h1 className="text-2xl font-bold text-foreground">Farmacia CyR</h1>
+          <p className="text-sm text-muted-foreground mt-1">Sistema de gestion de farmacia</p>
         </div>
 
         <Card className="shadow-lg border-0 shadow-primary/5">

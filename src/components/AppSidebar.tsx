@@ -86,8 +86,8 @@ export function AppSidebar() {
           </div>
           {!collapsed && (
             <div>
-              <h1 className="text-base font-bold text-sidebar-foreground">FarmaAdmin</h1>
-              <p className="text-[11px] text-sidebar-muted">Sistema de Gestión</p>
+              <h1 className="text-base font-bold text-sidebar-foreground">Farmacia CyR</h1>
+              <p className="text-[11px] text-sidebar-muted">Sistema de Gestion</p>
             </div>
           )}
         </div>
@@ -102,7 +102,7 @@ export function AppSidebar() {
       <SidebarFooter className="p-4">
         {!collapsed && (
           <div className="text-[10px] text-sidebar-muted text-center">
-            FarmaAdmin v1.0
+            Farmacia CyR v1.0
           </div>
         )}
       </SidebarFooter>
