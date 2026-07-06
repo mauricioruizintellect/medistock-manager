@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { clearSession, getStoredSession, saveSession } from "@/lib/auth";
 import type { AuthSession, AuthUser, LoginPayload } from "@/lib/auth";
-import { loginService } from "@/services/auth.service";
+import { getCurrentUserService, loginService } from "@/services/auth.service";
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -21,8 +21,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setSession(getStoredSession());
-    setIsLoading(false);
+    let isMounted = true;
+    const storedSession = getStoredSession();
+
+    if (!storedSession?.token) {
+      setSession(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setSession(storedSession);
+
+    void getCurrentUserService()
+      .then((user) => {
+        if (!isMounted) {
+          return;
+        }
+
+        const nextSession = {
+          ...storedSession,
+          user,
+        };
+
+        saveSession(nextSession);
+        setSession(nextSession);
+      })
+      .catch(() => {
+        if (!isMounted) {
+          return;
+        }
+
+        clearSession();
+        setSession(null);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const value = useMemo<AuthContextValue>(

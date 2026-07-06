@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpCircle, Loader2, Package, RotateCcw, Search } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { getErrorMessage } from "@/lib/api-errors";
 import { getBranchProducts } from "@/services/branch-products.service";
 import { getBranches } from "@/services/branches.service";
 import {
@@ -38,6 +39,7 @@ import {
   receiveInventoryLots,
   type ReceiveInventoryLotPayload,
 } from "@/services/inventory-lots.service";
+import { getUserBranchRoles, type UserBranchRole } from "@/services/user-branch-roles.service";
 
 interface ReceiveLotFormState {
   branch_id: string;
@@ -53,12 +55,36 @@ interface ReceiveLotFormState {
   status: "active" | "inactive";
 }
 
+interface InventoryBranchOption {
+  id: number;
+  name: string;
+  is_default: boolean;
+}
+
 const MOVEMENT_TYPE_LABELS: Record<InventoryMovementType, string> = {
   purchase: "entrada",
   in: "entrada",
   sale: "venta",
   out: "salida",
   adjustment: "ajuste",
+};
+
+const dedupeAssignedBranches = (branches: UserBranchRole[]) => {
+  const uniqueBranches = new Map<number, InventoryBranchOption>();
+
+  for (const branch of branches) {
+    const existing = uniqueBranches.get(branch.branch_id);
+
+    if (!existing || (!existing.is_default && Boolean(branch.is_default))) {
+      uniqueBranches.set(branch.branch_id, {
+        id: branch.branch_id,
+        name: branch.branch_name,
+        is_default: Boolean(branch.is_default),
+      });
+    }
+  }
+
+  return Array.from(uniqueBranches.values());
 };
 
 const formatDateInputValue = (date: Date) => {
@@ -171,7 +197,9 @@ const Inventory = () => {
   const [selectedMovementType, setSelectedMovementType] = useState<InventoryMovementType | "all">("all");
   const [isReceiveLotDialogOpen, setIsReceiveLotDialogOpen] = useState(false);
   const [receiveLotForm, setReceiveLotForm] = useState<ReceiveLotFormState>(emptyReceiveLotForm);
+  const [hasInitializedBranchSelection, setHasInitializedBranchSelection] = useState(false);
   const pharmacyId = user?.pharmacy_id ?? null;
+  const isBranchAdmin = user?.role_code === "BRANCH_ADMIN";
 
   const branchesQuery = useQuery({
     queryKey: ["branches", { pharmacyId, status: "active" }],
@@ -180,8 +208,57 @@ const Inventory = () => {
         ...(pharmacyId !== null ? { pharmacy_id: pharmacyId } : {}),
         status: "active",
       }),
-    enabled: pharmacyId !== null,
+    enabled: pharmacyId !== null && !isBranchAdmin,
   });
+
+  const assignedBranchesQuery = useQuery({
+    queryKey: ["user-branch-roles", "inventory"],
+    queryFn: () => getUserBranchRoles({ status: "active" }),
+    enabled: Boolean(user?.id) && isBranchAdmin,
+  });
+
+  const branchOptions = useMemo<InventoryBranchOption[]>(
+    () =>
+      isBranchAdmin
+        ? dedupeAssignedBranches(assignedBranchesQuery.data?.items ?? [])
+        : (branchesQuery.data?.items ?? []).map((branch) => ({
+            id: branch.id,
+            name: branch.name,
+            is_default: user?.default_branch_id === branch.id,
+          })),
+    [assignedBranchesQuery.data?.items, branchesQuery.data?.items, isBranchAdmin, user?.default_branch_id],
+  );
+
+  useEffect(() => {
+    if (hasInitializedBranchSelection || branchOptions.length === 0) {
+      return;
+    }
+
+    const defaultBranch =
+      branchOptions.find((branch) => branch.id === user?.default_branch_id) ||
+      branchOptions.find((branch) => branch.is_default) ||
+      branchOptions[0];
+
+    if (defaultBranch) {
+      setSelectedBranchId(String(defaultBranch.id));
+    }
+
+    setHasInitializedBranchSelection(true);
+  }, [branchOptions, hasInitializedBranchSelection, user?.default_branch_id]);
+
+  useEffect(() => {
+    if (!isReceiveLotDialogOpen || receiveLotForm.branch_id || selectedBranchId === "all") {
+      return;
+    }
+
+    setReceiveLotForm((current) => ({
+      ...current,
+      branch_id: selectedBranchId,
+    }));
+  }, [isReceiveLotDialogOpen, receiveLotForm.branch_id, selectedBranchId]);
+
+  const selectedInventoryBranchId = selectedBranchId !== "all" ? Number(selectedBranchId) : null;
+  const canQueryInventory = pharmacyId !== null && (!isBranchAdmin || selectedInventoryBranchId !== null);
 
   const inventoryStockQuery = useQuery({
     queryKey: [
@@ -195,10 +272,10 @@ const Inventory = () => {
     queryFn: () =>
       getInventoryStock({
         ...(pharmacyId !== null ? { pharmacy_id: pharmacyId } : {}),
-        ...(selectedBranchId !== "all" ? { branch_id: Number(selectedBranchId) } : {}),
+        ...(selectedInventoryBranchId !== null ? { branch_id: selectedInventoryBranchId } : {}),
         ...(selectedBranchProductId !== "all" ? { branch_product_id: Number(selectedBranchProductId) } : {}),
       }),
-    enabled: pharmacyId !== null,
+    enabled: canQueryInventory,
   });
 
   const inventoryMovementsQuery = useQuery({
@@ -214,11 +291,11 @@ const Inventory = () => {
     queryFn: () =>
       getInventoryMovements({
         ...(pharmacyId !== null ? { pharmacy_id: pharmacyId } : {}),
-        ...(selectedBranchId !== "all" ? { branch_id: Number(selectedBranchId) } : {}),
+        ...(selectedInventoryBranchId !== null ? { branch_id: selectedInventoryBranchId } : {}),
         ...(selectedBranchProductId !== "all" ? { branch_product_id: Number(selectedBranchProductId) } : {}),
         ...(selectedMovementType !== "all" ? { movement_type: selectedMovementType } : {}),
       }),
-    enabled: pharmacyId !== null,
+    enabled: canQueryInventory,
   });
 
   const branchProductsQuery = useQuery({
@@ -248,6 +325,24 @@ const Inventory = () => {
       });
     },
   });
+
+  const isBranchesLoading = isBranchAdmin ? assignedBranchesQuery.isLoading : branchesQuery.isLoading;
+  const branchesError = isBranchAdmin ? assignedBranchesQuery.error : branchesQuery.error;
+  const branchPermissionMessage = getErrorMessage(
+    branchesError,
+    "No se pudieron obtener las sucursales.",
+    { 403: "No tienes permisos para consultar sucursales fuera de tus asignaciones." },
+  );
+  const inventoryStockErrorMessage = getErrorMessage(
+    inventoryStockQuery.error,
+    "Ocurrió un error al consultar existencias.",
+    { 403: "No tienes permisos para consultar inventario fuera de tus sucursales asignadas." },
+  );
+  const inventoryMovementsErrorMessage = getErrorMessage(
+    inventoryMovementsQuery.error,
+    "Ocurrió un error al consultar movimientos.",
+    { 403: "No tienes permisos para consultar movimientos fuera de tus sucursales asignadas." },
+  );
 
   const handleReceiveLotChange = (field: keyof ReceiveLotFormState, value: string) => {
     setReceiveLotForm((current) => ({
@@ -340,7 +435,7 @@ const Inventory = () => {
           <Button
             className="gap-2"
             onClick={() => setIsReceiveLotDialogOpen(true)}
-            disabled={pharmacyId === null || branchesQuery.isLoading}
+            disabled={pharmacyId === null || isBranchesLoading || branchOptions.length === 0}
           >
             <ArrowUpCircle className="h-4 w-4" />
             Entrada
@@ -349,11 +444,25 @@ const Inventory = () => {
         </div>
       </div>
 
+      {branchesError ? (
+        <Card className="border-destructive/40">
+          <CardContent className="p-4 text-sm text-destructive">{branchPermissionMessage}</CardContent>
+        </Card>
+      ) : null}
+
+      {!isBranchesLoading && isBranchAdmin && branchOptions.length === 0 ? (
+        <Card className="border-destructive/40">
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            El usuario no tiene sucursales activas asignadas para consultar inventario.
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="stat-card">
           <p className="text-2xl font-bold">{formatStock(totalUnits)}</p>
-          <p className="text-xs text-muted-foreground">Unidades Totales</p>
+          <p className="text-xs text-muted-foreground">Stock Total</p>
         </div>
         <div className="stat-card">
           <p className="text-2xl font-bold">{stockItems.length}</p>
@@ -383,13 +492,13 @@ const Inventory = () => {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input placeholder="Buscar producto..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
                 </div>
-                <Select value={selectedBranchId} onValueChange={handleStockBranchChange} disabled={branchesQuery.isLoading}>
+                <Select value={selectedBranchId} onValueChange={handleStockBranchChange} disabled={isBranchesLoading}>
                   <SelectTrigger className="sm:w-56">
-                    <SelectValue placeholder="Todas las sucursales" />
+                    <SelectValue placeholder={isBranchAdmin ? "Selecciona sucursal" : "Todas las sucursales"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todas las sucursales</SelectItem>
-                    {(branchesQuery.data?.items ?? []).map((branch) => (
+                    {!isBranchAdmin ? <SelectItem value="all">Todas las sucursales</SelectItem> : null}
+                    {branchOptions.map((branch) => (
                       <SelectItem key={branch.id} value={String(branch.id)}>
                         {branch.name}
                       </SelectItem>
@@ -416,7 +525,7 @@ const Inventory = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Producto</TableHead>
-                    <TableHead className="text-center">Stock</TableHead>
+                    <TableHead className="text-center">Stock Total</TableHead>
                     <TableHead className="text-center">Mínimo</TableHead>
                     <TableHead className="hidden md:table-cell">Lote</TableHead>
                     <TableHead className="hidden md:table-cell">Vencimiento</TableHead>
@@ -436,9 +545,7 @@ const Inventory = () => {
                   ) : inventoryStockQuery.isError ? (
                     <TableRow>
                       <TableCell colSpan={6} className="h-24 text-center text-sm text-destructive">
-                        {inventoryStockQuery.error instanceof Error
-                          ? inventoryStockQuery.error.message
-                          : "Ocurrió un error al consultar existencias."}
+                        {inventoryStockErrorMessage}
                       </TableCell>
                     </TableRow>
                   ) : filteredStockItems.length === 0 ? (
@@ -529,9 +636,7 @@ const Inventory = () => {
                   ) : inventoryMovementsQuery.isError ? (
                     <TableRow>
                       <TableCell colSpan={6} className="h-24 text-center text-sm text-destructive">
-                        {inventoryMovementsQuery.error instanceof Error
-                          ? inventoryMovementsQuery.error.message
-                          : "Ocurrió un error al consultar movimientos."}
+                        {inventoryMovementsErrorMessage}
                       </TableCell>
                     </TableRow>
                   ) : filteredMovementsItems.length === 0 ? (
@@ -591,13 +696,13 @@ const Inventory = () => {
                 <Select
                   value={receiveLotForm.branch_id}
                   onValueChange={(value) => handleReceiveLotChange("branch_id", value)}
-                  disabled={branchesQuery.isLoading || isSavingReceiveLot}
+                  disabled={isBranchesLoading || isSavingReceiveLot}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona una sucursal" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(branchesQuery.data?.items ?? []).map((branch) => (
+                    {branchOptions.map((branch) => (
                       <SelectItem key={branch.id} value={String(branch.id)}>
                         {branch.name}
                       </SelectItem>
@@ -763,7 +868,7 @@ const Inventory = () => {
                 className="gap-2"
                 disabled={
                   isSavingReceiveLot ||
-                  branchesQuery.isLoading ||
+                  isBranchesLoading ||
                   !receiveLotForm.branch_id ||
                   (branchProductsQuery.data?.items.length ?? 0) === 0
                 }

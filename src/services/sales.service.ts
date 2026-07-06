@@ -1,10 +1,5 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
+import { buildApiError } from "@/lib/api-errors";
 
 export type PaymentMethod = "cash" | "card" | "transfer";
 export type DiscountType = "percentage" | "amount";
@@ -76,11 +71,6 @@ interface SaleEnvelope<TSale> {
   sale?: TSale;
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 export async function createSale(payload: CreateSalePayload): Promise<SaleSummary> {
   try {
     const { data } = await apiClient.post<SaleEnvelope<SaleSummary>>("/sales", payload);
@@ -91,7 +81,7 @@ export async function createSale(payload: CreateSalePayload): Promise<SaleSummar
 
     return data.sale;
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo registrar la venta."));
+    throw buildApiError(error, "No se pudo registrar la venta.");
   }
 }
 
@@ -105,6 +95,6 @@ export async function getSaleById(saleId: number): Promise<SaleDetail> {
 
     return data.sale;
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo obtener el detalle de la venta."));
+    throw buildApiError(error, "No se pudo obtener el detalle de la venta.");
   }
 }

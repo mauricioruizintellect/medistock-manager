@@ -1,10 +1,5 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
+import { buildApiError } from "@/lib/api-errors";
 
 export type ClientStatus = "active" | "inactive";
 
@@ -78,11 +73,6 @@ interface ClientsEnvelope {
   data?: Client[];
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 function unwrapClient(data: Client | ClientEnvelope) {
   if ("client" in data && data.client) {
     return data.client;
@@ -117,7 +107,7 @@ export async function getClients(params: GetClientsParams = {}): Promise<Clients
     const { data } = await apiClient.get<ClientsEnvelope | Client[]>("/clients", { params });
     return unwrapClients(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener los clientes."));
+    throw buildApiError(error, "No se pudieron obtener los clientes.");
   }
 }
 
@@ -126,7 +116,7 @@ export async function getClientById(clientId: number): Promise<Client> {
     const { data } = await apiClient.get<ClientEnvelope | Client>(`/clients/${clientId}`);
     return unwrapClient(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo obtener el cliente."));
+    throw buildApiError(error, "No se pudo obtener el cliente.");
   }
 }
 
@@ -135,7 +125,7 @@ export async function createClient(payload: CreateClientPayload): Promise<Client
     const { data } = await apiClient.post<ClientEnvelope | Client>("/clients", payload);
     return unwrapClient(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo crear el cliente."));
+    throw buildApiError(error, "No se pudo crear el cliente.");
   }
 }
 
@@ -144,6 +134,6 @@ export async function updateClient(clientId: number, payload: UpdateClientPayloa
     const { data } = await apiClient.put<ClientEnvelope | Client>(`/clients/${clientId}`, payload);
     return unwrapClient(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo actualizar el cliente."));
+    throw buildApiError(error, "No se pudo actualizar el cliente.");
   }
 }

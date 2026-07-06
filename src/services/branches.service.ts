@@ -1,10 +1,5 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
+import { buildApiError } from "@/lib/api-errors";
 
 export type BranchStatus = "active" | "inactive";
 
@@ -75,11 +70,6 @@ interface BranchesEnvelope {
   data?: Branch[];
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 function unwrapBranch(data: Branch | BranchEnvelope) {
   if ("branch" in data && data.branch) {
     return data.branch;
@@ -114,7 +104,7 @@ export async function getBranches(params: GetBranchesParams = {}): Promise<Branc
     const { data } = await apiClient.get<BranchesEnvelope | Branch[]>("/branches", { params });
     return unwrapBranches(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener las sucursales."));
+    throw buildApiError(error, "No se pudieron obtener las sucursales.");
   }
 }
 
@@ -123,7 +113,7 @@ export async function createBranch(payload: CreateBranchPayload): Promise<Branch
     const { data } = await apiClient.post<Branch | BranchEnvelope>("/branches", payload);
     return unwrapBranch(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo crear la sucursal."));
+    throw buildApiError(error, "No se pudo crear la sucursal.");
   }
 }
 
@@ -132,6 +122,6 @@ export async function updateBranch(branchId: number, payload: UpdateBranchPayloa
     const { data } = await apiClient.put<Branch | BranchEnvelope>(`/branches/${branchId}`, payload);
     return unwrapBranch(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo actualizar la sucursal."));
+    throw buildApiError(error, "No se pudo actualizar la sucursal.");
   }
 }

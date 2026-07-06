@@ -832,7 +832,7 @@ const ProductCreate = () => {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {branchProductsQuery.data?.total ?? 0} asignaciones registradas para este producto.
+                  {branchProductsQuery.data?.total ?? 0} asignaciones registradas para este producto. El stock entra por lotes, no en la asignación.
                 </p>
               </CardHeader>
               <CardContent className="p-0">
@@ -855,7 +855,7 @@ const ProductCreate = () => {
                       <TableRow>
                         <TableHead>Sucursal</TableHead>
                         <TableHead className="text-right">Precio</TableHead>
-                        <TableHead className="text-right">Stock</TableHead>
+                        <TableHead className="text-right">Stock Total</TableHead>
                         <TableHead className="hidden md:table-cell">Percha</TableHead>
                         <TableHead className="text-center">POS</TableHead>
                         <TableHead className="text-center">Estado</TableHead>

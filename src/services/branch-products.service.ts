@@ -1,11 +1,6 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
+import { buildApiError } from "@/lib/api-errors";
 import type { BranchStatus } from "@/services/branches.service";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
 
 export interface BranchProduct {
   id: number;
@@ -49,8 +44,6 @@ export interface CreateBranchProductPayload {
   min_stock?: number;
   max_stock?: number;
   reorder_point?: number;
-  current_stock?: number;
-  reserved_stock?: number;
   shelf_location?: string;
   is_sellable?: boolean;
   is_visible_in_pos?: boolean;
@@ -103,11 +96,6 @@ export interface BranchProductsListResponse {
   items: BranchProduct[];
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 function unwrapBranchProduct(data: BranchProduct | BranchProductEnvelope) {
   if ("branch_product" in data && data.branch_product) {
     return data.branch_product;
@@ -144,7 +132,7 @@ export async function getBranchProducts(params: GetBranchProductsParams = {}): P
     const { data } = await apiClient.get<BranchProductsEnvelope | BranchProduct[]>("/branch-products", { params });
     return unwrapBranchProducts(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener las asignaciones por sucursal."));
+    throw buildApiError(error, "No se pudieron obtener las asignaciones por sucursal.");
   }
 }
 
@@ -153,7 +141,7 @@ export async function createBranchProduct(payload: CreateBranchProductPayload): 
     const { data } = await apiClient.post<BranchProduct | BranchProductEnvelope>("/branch-products", payload);
     return unwrapBranchProduct(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo asignar el producto a la sucursal."));
+    throw buildApiError(error, "No se pudo asignar el producto a la sucursal.");
   }
 }
 
@@ -165,6 +153,6 @@ export async function updateBranchProduct(
     const { data } = await apiClient.put<BranchProduct | BranchProductEnvelope>(`/branch-products/${branchProductId}`, payload);
     return unwrapBranchProduct(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo actualizar la asignación del producto."));
+    throw buildApiError(error, "No se pudo actualizar la asignación del producto.");
   }
 }

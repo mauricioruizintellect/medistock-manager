@@ -1,11 +1,6 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
+import { buildApiError } from "@/lib/api-errors";
 import type { BranchStatus } from "@/services/branches.service";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
 
 export interface ProductCategory {
   id: number;
@@ -52,11 +47,6 @@ interface ProductCategoriesEnvelope {
   data?: ProductCategory[];
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 function unwrapCategory(data: ProductCategory | ProductCategoryEnvelope) {
   if ("category" in data && data.category) {
     return data.category;
@@ -99,7 +89,7 @@ export async function getProductCategories(
     });
     return unwrapCategories(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener las categorías."));
+    throw buildApiError(error, "No se pudieron obtener las categorías.");
   }
 }
 
@@ -108,6 +98,6 @@ export async function createProductCategory(payload: CreateProductCategoryPayloa
     const { data } = await apiClient.post<ProductCategory | ProductCategoryEnvelope>("/product-categories", payload);
     return unwrapCategory(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo crear la categoría."));
+    throw buildApiError(error, "No se pudo crear la categoría.");
   }
 }

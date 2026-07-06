@@ -1,11 +1,6 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
+import { buildApiError } from "@/lib/api-errors";
 import type { BranchStatus } from "@/services/branches.service";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
 
 export interface ProductMaster {
   id: number;
@@ -94,11 +89,6 @@ interface ProductsEnvelope {
   data?: ProductMaster[];
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 function unwrapProduct(data: ProductMaster | ProductEnvelope) {
   if ("product" in data && data.product) {
     return data.product;
@@ -133,7 +123,7 @@ export async function getProducts(params: GetProductsParams = {}): Promise<Produ
     const { data } = await apiClient.get<ProductsEnvelope | ProductMaster[]>("/products", { params });
     return unwrapProducts(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener los productos."));
+    throw buildApiError(error, "No se pudieron obtener los productos.");
   }
 }
 
@@ -142,7 +132,7 @@ export async function getProductById(productId: number): Promise<ProductMaster> 
     const { data } = await apiClient.get<ProductMaster | ProductEnvelope>(`/products/${productId}`);
     return unwrapProduct(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo obtener el producto."));
+    throw buildApiError(error, "No se pudo obtener el producto.");
   }
 }
 
@@ -151,7 +141,7 @@ export async function createProduct(payload: CreateProductPayload): Promise<Prod
     const { data } = await apiClient.post<ProductMaster | ProductEnvelope>("/products", payload);
     return unwrapProduct(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo crear el producto."));
+    throw buildApiError(error, "No se pudo crear el producto.");
   }
 }
 
@@ -160,6 +150,6 @@ export async function updateProduct(productId: number, payload: UpdateProductPay
     const { data } = await apiClient.put<ProductMaster | ProductEnvelope>(`/products/${productId}`, payload);
     return unwrapProduct(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo actualizar el producto."));
+    throw buildApiError(error, "No se pudo actualizar el producto.");
   }
 }

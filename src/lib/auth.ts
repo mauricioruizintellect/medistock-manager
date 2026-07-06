@@ -1,3 +1,22 @@
+export interface AuthUserPharmacy {
+  id: number;
+  name: string;
+  legal_name?: string | null;
+  status?: string | null;
+}
+
+export interface AuthUserBranch {
+  id?: number;
+  branch_id?: number;
+  name?: string;
+  branch_name?: string;
+  pharmacy_id: number;
+  role_id: number | null;
+  role_code: string | null;
+  role_name: string | null;
+  is_default: boolean;
+}
+
 export interface AuthUser {
   id: number;
   first_name: string;
@@ -9,15 +28,8 @@ export interface AuthUser {
   role_code: string | null;
   role_name: string | null;
   default_branch_id?: number | null;
-  default_branch?: {
-    id: number;
-    name: string;
-    pharmacy_id: number;
-    role_id: number | null;
-    role_code: string | null;
-    role_name: string | null;
-    is_default: boolean;
-  } | null;
+  default_branch?: AuthUserBranch | null;
+  pharmacies?: AuthUserPharmacy[];
 }
 
 export interface AuthSession {

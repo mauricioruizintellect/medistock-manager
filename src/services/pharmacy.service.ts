@@ -1,10 +1,5 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
+import { buildApiError } from "@/lib/api-errors";
 
 export interface Pharmacy {
   id: number;
@@ -56,13 +51,7 @@ export async function getPharmacyById(pharmacyId: number): Promise<Pharmacy> {
 
     return data as Pharmacy;
   } catch (error) {
-    const axiosError = error as AxiosError<ApiErrorResponse>;
-    const message =
-      axiosError.response?.data?.message ||
-      axiosError.response?.data?.error ||
-      "No se pudo obtener la farmacia del usuario.";
-
-    throw new Error(message);
+    throw buildApiError(error, "No se pudo obtener la farmacia del usuario.");
   }
 }
 
@@ -80,12 +69,6 @@ export async function updatePharmacyById(pharmacyId: number, payload: UpdatePhar
 
     return data as Pharmacy;
   } catch (error) {
-    const axiosError = error as AxiosError<ApiErrorResponse>;
-    const message =
-      axiosError.response?.data?.message ||
-      axiosError.response?.data?.error ||
-      "No se pudo actualizar la farmacia.";
-
-    throw new Error(message);
+    throw buildApiError(error, "No se pudo actualizar la farmacia.");
   }
 }

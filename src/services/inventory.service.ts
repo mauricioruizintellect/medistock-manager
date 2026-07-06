@@ -1,10 +1,5 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
+import { buildApiError } from "@/lib/api-errors";
 
 export type InventoryMovementType = "purchase" | "in" | "sale" | "out" | "adjustment";
 
@@ -58,11 +53,6 @@ interface InventoryEnvelope<TItem> {
   data?: TItem[];
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 function unwrapInventoryList<TItem>(data: InventoryEnvelope<TItem> | TItem[]) {
   if (Array.isArray(data)) {
     return {
@@ -87,7 +77,7 @@ export async function getInventoryStock(params: InventoryQueryParams = {}): Prom
     );
     return unwrapInventoryList(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener las existencias."));
+    throw buildApiError(error, "No se pudieron obtener las existencias.");
   }
 }
 
@@ -101,6 +91,6 @@ export async function getInventoryMovements(
     );
     return unwrapInventoryList(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener los movimientos de inventario."));
+    throw buildApiError(error, "No se pudieron obtener los movimientos de inventario.");
   }
 }

@@ -44,6 +44,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { getErrorMessage } from "@/lib/api-errors";
 import {
   createUser,
   deactivateUser,
@@ -205,6 +206,9 @@ const UsersManagement = () => {
   const activeUsers = usersQuery.data?.filter((pharmacyUser) => pharmacyUser.status === "active").length ?? 0;
   const admins =
     usersQuery.data?.filter((pharmacyUser) => pharmacyUser.role_code.includes("ADMIN")).length ?? 0;
+  const usersErrorMessage = getErrorMessage(usersQuery.error, "Ocurrió un error al consultar usuarios.", {
+    403: "No tienes permisos para consultar usuarios de otra farmacia.",
+  });
 
   const openCreateForm = () => {
     const cashierRole = roles.find((role) => role.code === "CASHIER") ?? roles[0];
@@ -369,7 +373,7 @@ const UsersManagement = () => {
             </div>
           ) : usersQuery.isError ? (
             <div className="p-6 text-sm text-destructive">
-              {usersQuery.error instanceof Error ? usersQuery.error.message : "Ocurrió un error al consultar usuarios."}
+              {usersErrorMessage}
             </div>
           ) : usersQuery.data?.length === 0 ? (
             <div className="p-6 text-sm text-muted-foreground">No hay usuarios registrados para esta farmacia.</div>

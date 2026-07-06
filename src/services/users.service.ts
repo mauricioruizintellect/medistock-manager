@@ -1,10 +1,5 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
+import { buildApiError } from "@/lib/api-errors";
 
 export interface PharmacyUser {
   id: number;
@@ -66,11 +61,6 @@ interface UserEnvelope {
   data?: PharmacyUser;
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 function unwrapUser(data: PharmacyUser | UserEnvelope) {
   if ("user" in data && data.user) {
     return data.user;
@@ -93,7 +83,7 @@ export async function getUsersByPharmacy(pharmacyId: number): Promise<PharmacyUs
 
     return data.users ?? data.data ?? [];
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener los usuarios de la farmacia."));
+    throw buildApiError(error, "No se pudieron obtener los usuarios de la farmacia.");
   }
 }
 
@@ -107,7 +97,7 @@ export async function getUserRoles(): Promise<UserRole[]> {
 
     return data.roles ?? data.data ?? [];
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudieron obtener los roles."));
+    throw buildApiError(error, "No se pudieron obtener los roles.");
   }
 }
 
@@ -116,7 +106,7 @@ export async function createUser(payload: CreateUserPayload): Promise<PharmacyUs
     const { data } = await apiClient.post<PharmacyUser | UserEnvelope>("/users", payload);
     return unwrapUser(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo crear el usuario."));
+    throw buildApiError(error, "No se pudo crear el usuario.");
   }
 }
 
@@ -125,7 +115,7 @@ export async function updateUser(userId: number, payload: UpdateUserPayload): Pr
     const { data } = await apiClient.put<PharmacyUser | UserEnvelope>(`/users/${userId}`, payload);
     return unwrapUser(data);
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo actualizar el usuario."));
+    throw buildApiError(error, "No se pudo actualizar el usuario.");
   }
 }
 

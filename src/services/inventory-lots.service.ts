@@ -1,11 +1,6 @@
-import { AxiosError } from "axios";
 import { apiClient } from "@/lib/api-client";
+import { buildApiError } from "@/lib/api-errors";
 import type { BranchStatus } from "@/services/branches.service";
-
-interface ApiErrorResponse {
-  message?: string;
-  error?: string;
-}
 
 export interface InitialInventoryLotPayload {
   branch_product_id: number;
@@ -45,17 +40,12 @@ export interface ReceiveInventoryLotsResponse {
   }>;
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-  const axiosError = error as AxiosError<ApiErrorResponse>;
-  return axiosError.response?.data?.message || axiosError.response?.data?.error || fallback;
-}
-
 export async function createInitialInventoryLot(payload: InitialInventoryLotPayload) {
   try {
     const { data } = await apiClient.post("/inventory-lots/initial-load", payload);
     return data;
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo cargar el inventario inicial."));
+    throw buildApiError(error, "No se pudo cargar el inventario inicial.");
   }
 }
 
@@ -66,6 +56,6 @@ export async function receiveInventoryLots(
     const { data } = await apiClient.post<ReceiveInventoryLotsResponse>("/inventory-lots/receive", payload);
     return data;
   } catch (error) {
-    throw new Error(getApiErrorMessage(error, "No se pudo ingresar el nuevo lote."));
+    throw buildApiError(error, "No se pudo ingresar el nuevo lote.");
   }
 }

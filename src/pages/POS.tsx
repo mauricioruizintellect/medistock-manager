@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { ApiRequestError } from "@/lib/api-errors";
 import { getBranchProducts, type BranchProduct } from "@/services/branch-products.service";
 import { getClients, type Client } from "@/services/clients.service";
 import { createSale, type PaymentMethod, type SaleSummary } from "@/services/sales.service";
@@ -68,6 +69,7 @@ interface ReceiptSnapshot {
 }
 
 const MIN_SEARCH_LENGTH = 2;
+const SELLABLE_STOCK_ERROR_FRAGMENT = "No hay stock vendible";
 
 const toNumber = (value: string | number | null | undefined) => {
   const parsed = Number(value ?? 0);
@@ -307,7 +309,11 @@ const POS = () => {
 
       if (existingItem) {
         if (existingItem.quantity >= availableStock) {
-          toast({ title: "Stock insuficiente", variant: "destructive" });
+          toast({
+            title: "Stock total insuficiente",
+            description: "La cantidad supera el stock total registrado para esta sucursal.",
+            variant: "destructive",
+          });
           return currentCart;
         }
 
@@ -317,7 +323,11 @@ const POS = () => {
       }
 
       if (availableStock <= 0) {
-        toast({ title: "Producto sin existencias", variant: "destructive" });
+        toast({
+          title: "Producto sin stock total",
+          description: "Este producto no tiene stock total registrado en la sucursal seleccionada.",
+          variant: "destructive",
+        });
         return currentCart;
       }
 
@@ -339,7 +349,11 @@ const POS = () => {
           const availableStock = toNumber(item.product.current_stock);
 
           if (nextQuantity > availableStock) {
-            toast({ title: "Stock insuficiente", variant: "destructive" });
+            toast({
+              title: "Stock total insuficiente",
+              description: "La cantidad supera el stock total registrado para esta sucursal.",
+              variant: "destructive",
+            });
             return item;
           }
 
@@ -424,6 +438,24 @@ const POS = () => {
           });
         },
         onError: (error) => {
+          if (error instanceof ApiRequestError && error.status === 409) {
+            toast({
+              title: "Conflicto de consecutivo",
+              description: `${error.message} Puedes reintentar sin perder el carrito.`,
+              variant: "destructive",
+            });
+            return;
+          }
+
+          if (error instanceof Error && error.message.includes(SELLABLE_STOCK_ERROR_FRAGMENT)) {
+            toast({
+              title: "Stock no vendible",
+              description: error.message,
+              variant: "destructive",
+            });
+            return;
+          }
+
           toast({
             title: "No se pudo registrar la venta",
             description: error instanceof Error ? error.message : "Ocurrió un error al registrar la venta.",
@@ -550,6 +582,10 @@ const POS = () => {
             disabled={!canSearchProducts || isDraftLocked}
           />
         </div>
+
+        <p className="mb-4 text-xs text-muted-foreground">
+          El stock mostrado es stock total. La venta final se valida con lotes activos y no vencidos.
+        </p>
 
         {branchRolesQuery.isLoading ? (
           <Card className="mb-4">
@@ -704,7 +740,7 @@ const POS = () => {
                       <div>
                         <p className="font-medium text-sm">{product.product_name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {product.presentation ?? product.sku ?? "Sin presentación"} · Stock:{" "}
+                          {product.presentation ?? product.sku ?? "Sin presentación"} · Stock total:{" "}
                           {formatStock(product.current_stock)}
                         </p>
                       </div>
@@ -740,7 +776,8 @@ const POS = () => {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{item.product.product_name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatCurrency(item.product.sale_price)} c/u · Stock: {formatStock(item.product.current_stock)}
+                        {formatCurrency(item.product.sale_price)} c/u · Stock total:{" "}
+                        {formatStock(item.product.current_stock)}
                       </p>
                     </div>
                     <div className="flex items-center gap-1">
